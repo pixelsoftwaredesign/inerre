@@ -1,0 +1,38 @@
+{
+  "name": "inerre-studio",
+  "version": "1.0.0",
+  "description": "Inerre Studio - 3D Modeling & Design",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:mac": "electron-builder --mac",
+    "build:win": "electron-builder --win",
+    "build:linux": "electron-builder --linux"
+  },
+  "build": {
+    "appId": "com.inerre.studio",
+    "productName": "Inerre Studio",
+    "files": [
+      "main.js",
+      "preload.js",
+      "index.html",
+      "styles.css",
+      "app.js",
+      "package.json"
+    ],
+    "mac": {
+      "target": "dmg",
+      "icon": null
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
+  },
+  "devDependencies": {
+    "electron": "^35.0.0",
+    "electron-builder": "^25.0.0"
+  }
+}

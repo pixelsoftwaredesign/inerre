@@ -1,0 +1,657 @@
+<!doctype html>
+<!-- PixelSoftwareDesign2026@ -->
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Inerre Studio</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+
+      <!-- ===== 1. MAIN TOOLBAR ===== -->
+      <header class="main-toolbar">
+        <div class="toolbar-left">
+          <div class="brand">
+            <span class="brand-mark">I</span>
+            <strong>Inner Studio</strong>
+            <span class="brand-copyright">PixelSoftwareDesign @2026</span>
+          </div>
+          <input id="projectNameInput" class="project-name-input" value="Projet sans titre" />
+          <span id="projectMeta">.pix</span>
+        </div>
+
+        <div class="toolbar-center">
+          <!-- Selection Mode -->
+          <div class="tg-group">
+            <button class="active" data-sel-mode="point" title="Sélection (Q)">Sélection</button>
+            <button data-sel-mode="rect" title="Sélection cadre">Cadre</button>
+            <button data-sel-mode="line" title="Sélection lasso">Lasso</button>
+          </div>
+          <span class="tg-sep"></span>
+
+          <!-- Selection Filter -->
+          <div class="tg-group">
+            <button class="active" data-sel-filter="all">Tout</button>
+            <button data-sel-filter="2d">2D</button>
+            <button data-sel-filter="3d">3D</button>
+          </div>
+          <span class="tg-sep"></span>
+
+          <!-- Transform Gizmos (Q/W/E/R) -->
+          <div class="tg-group">
+            <button data-transform="select" class="active" title="Sélection (Q)">Q</button>
+            <button data-transform="translate" title="Déplacer (W)">W</button>
+            <button data-transform="rotate" title="Tourner (E)">E</button>
+            <button data-transform="scale" title="Échelle (R)">R</button>
+          </div>
+          <span class="tg-sep"></span>
+
+          <!-- Snap & Grid -->
+          <div class="tg-group">
+            <button id="snapBtn" title="Snap grille">Snap</button>
+            <select id="snapSizeSelect" class="tg-select" title="Valeur de snap">
+              <option value="0.1">0.1</option>
+              <option value="0.25">0.25</option>
+              <option value="0.5" selected>0.5</option>
+              <option value="1">1</option>
+              <option value="2">2</option>
+            </select>
+            <button id="gridBtn" class="active" title="Afficher la grille">Grid</button>
+            <select id="gridSizeSelect" class="tg-select" title="Subdivisions grille">
+              <option value="10">10</option>
+              <option value="20">20</option>
+              <option value="40" selected>40</option>
+              <option value="80">80</option>
+            </select>
+          </div>
+          <span class="tg-sep"></span>
+
+          <!-- View controls -->
+          <div class="tg-group">
+            <button id="focusBtn" title="Centrer sur l'objet">Focus</button>
+            <button id="quadViewBtn" title="Quad View (Alt+W)">Quad</button>
+            <button id="screenshotBtn" title="Capture d'écran HD">📷</button>
+            <button id="aiGenBtn" class="accent-btn" title="Générer avec IA">AI 3D</button>
+          </div>
+        </div>
+
+        <div class="toolbar-right">
+          <span id="selectionInfo" class="sel-info">Aucun objet</span>
+        </div>
+      </header>
+
+      <!-- ===== 2. WORKSPACE ===== -->
+      <main class="workspace">
+
+        <!-- LEFT: Scene Explorer -->
+        <aside class="scene-explorer">
+          <div class="panel-header">
+            <div class="panel-tabs-small">
+              <button class="active" data-left-tab="scene">Scène</button>
+              <button data-left-tab="ai">IA</button>
+            </div>
+            <div class="panel-header-actions">
+              <button id="collapseSceneBtn" title="Tout réduire">−</button>
+            </div>
+          </div>
+          <!-- Scene tree tab -->
+          <div class="left-tab active" id="leftTabScene">
+            <div class="scene-tree-wrap">
+              <div id="objectList" class="scene-tree"></div>
+            </div>
+            <div class="subobj-bar">
+              <button class="active" data-subobj="object" title="Mode objet">Obj</button>
+              <button data-subobj="vertex" title="Mode sommet">Vert</button>
+              <button data-subobj="edge" title="Mode arête">Edge</button>
+              <button data-subobj="face" title="Mode face">Face</button>
+            </div>
+          </div>
+          <!-- AI Prompter tab -->
+          <div class="left-tab hidden" id="leftTabAI">
+            <div class="ai-prompter">
+              <div class="ai-chat" id="aiChat">
+                <div class="ai-msg ai-system">
+                  <span class="ai-msg-icon">I</span>
+                  <div>
+                    <strong>Assistant IA</strong>
+                    <p>Décris le projet que tu souhaites générer. Ex: <em>"Un salon moderne de 20m² avec canapé et table basse"</em> ou <em>"Un appartement 2 pièces de 50m²"</em>.</p>
+                  </div>
+                </div>
+              </div>
+              <div class="ai-input-row">
+                <textarea id="aiPrompterInput" class="ai-input" rows="2" placeholder="Décris ton projet..."></textarea>
+                <button id="aiPrompterSend" class="ai-send-btn" title="Générer (Ctrl+Enter)">→</button>
+              </div>
+              <div class="ai-hints">
+                <button class="ai-hint" data-hint="Salon moderne 20m² avec canapé et table">Salon 20m²</button>
+                <button class="ai-hint" data-hint="Cuisine ouverte 12m² avec îlot central">Cuisine 12m²</button>
+                <button class="ai-hint" data-hint="Chambre 15m² avec lit queen size et armoire">Chambre 15m²</button>
+                <button class="ai-hint" data-hint="Bureau 10m² avec desk et bibliothèque">Bureau 10m²</button>
+              </div>
+              <div id="aiVariants" class="ai-variants hidden">
+                <p>Variantes proposées:</p>
+                <div id="aiVariantList" class="ai-variant-list"></div>
+                <div class="ai-export-row">
+                  <button id="exportBlueprintBtn" class="ai-export-btn" title="Exporter le blueprint JSON">📋 Export JSON</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </aside>
+
+        <!-- CENTER: Viewport -->
+        <section class="viewport-container">
+          <div id="viewport" class="viewport">
+            <div class="vp-overlay hidden" id="vpOverlay">
+              <span class="vp-label" data-vp-id="front" style="top:8px;left:8px">Front</span>
+              <span class="vp-label" data-vp-id="top" style="top:8px;right:8px">Top</span>
+              <span class="vp-label" data-vp-id="left" style="bottom:8px;left:8px">Left</span>
+              <span class="vp-label" data-vp-id="perspective" style="bottom:8px;right:8px">Perspective</span>
+            </div>
+            <div class="vp-divider-h hidden" id="vpDividerH"></div>
+            <div class="vp-divider-v hidden" id="vpDividerV"></div>
+          </div>
+          <canvas id="drawCanvas" class="draw-canvas"></canvas>
+          <div id="planViewport" class="viewport plan hidden">
+            <canvas id="planCanvas"></canvas>
+          </div>
+          <div id="panoramaViewport" class="viewport panorama hidden"></div>
+          <div id="boxOverlay" class="box-overlay hidden"></div>
+
+          <!-- Tool Ribbon -->
+          <div class="tool-ribbon" aria-label="Outils">
+            <div class="ribbon-group">
+              <span>2D</span>
+              <button data-draw-tool="point">Point</button>
+              <button data-draw-tool="line">Ligne</button>
+              <button data-draw-tool="rectangle">Rectangle</button>
+              <button data-draw-tool="circle">Cercle</button>
+              <button data-draw-tool="arc">Arc</button>
+              <button data-draw-tool="profile">Profile</button>
+              <button id="extrude2dBtn">Extrude</button>
+              <button id="revolveBtn">Revolve</button>
+            </div>
+            <div class="ribbon-group">
+              <span>3D</span>
+              <button data-add="box">Cube</button>
+              <button data-add="sphere">Sphere</button>
+              <button data-add="cone">Cone</button>
+              <button data-add="cylinder">Cylindre</button>
+            </div>
+            <div class="ribbon-group">
+              <span>Edit</span>
+              <button data-transform-mode="translate">Move</button>
+              <button data-transform-mode="rotate">Rotate</button>
+              <button data-transform-mode="scale">Scale</button>
+              <button id="scaleUpBtn">Agrandir</button>
+              <button id="connectBtn">Connect</button>
+              <button id="booleanBtn">Boolean</button>
+              <span id="booleanStatus" class="boolean-status hidden"></span>
+              <button id="innerSelectBtn">Inner</button>
+              <button id="deformBtn">Deform</button>
+              <button id="boxSelectBtn" data-sel-mode="rect">Box</button>
+              <button id="arrayBtn">Array</button>
+              <button id="mirrorBtn">Mirror</button>
+            </div>
+            <div id="arrayPanel" class="ribbon-panel hidden">
+              <label>Type <select id="arrayType"><option value="linear">Linéaire</option><option value="grid">Grille</option><option value="circle">Cercle</option></select></label>
+              <label>Count <input id="arrayCount" type="number" min="1" max="100" value="5" /></label>
+              <label id="arrayOffsetLabel"><span id="arrayOffsetText">Offset</span> <input id="arrayOffset" type="number" min="0.1" max="20" step="0.1" value="1" /></label>
+              <button id="applyArrayBtn">Appliquer</button>
+            </div>
+            <div id="mirrorPanel" class="ribbon-panel hidden">
+              <span>Mirror:</span>
+              <button data-mirror-axis="x">X</button>
+              <button data-mirror-axis="y">Y</button>
+              <button data-mirror-axis="z">Z</button>
+            </div>
+          </div>
+
+          <!-- Floating HUD -->
+          <div class="floating-hud">
+            <button id="deleteBtn" title="Supprimer l'objet sélectionné">Delete</button>
+            <button id="duplicateBtn" title="Dupliquer l'objet sélectionné">Duplicate</button>
+            <button id="aiGenBtn2" title="Générer avec IA">AI 3D</button>
+          </div>
+
+          <!-- AI Modal -->
+          <div id="aiModal" class="modal-overlay hidden">
+            <div class="modal-dialog">
+              <div class="modal-header">
+                <span>Génération 3D par IA</span>
+                <button id="aiModalClose" class="modal-close">&times;</button>
+              </div>
+              <div class="modal-body">
+                <label>Décrivez l'objet en français ou anglais
+                  <textarea id="aiPrompt" rows="3" placeholder="Ex: un canapé rouge en velours, une table en bois moderne, une lampe design blanche..."></textarea>
+                </label>
+                <label>Clé API Hugging Face (optionnelle)
+                  <input id="aiApiKey" type="text" placeholder="hf_..." />
+                  <span class="hint">Backend Python : tente le serveur local, puis HF, puis mots-clés</span>
+                </label>
+                <div id="aiProgress" class="ai-progress hidden">
+                  <span id="aiStatus">Génération en cours...</span>
+                  <div class="spinner"></div>
+                </div>
+              </div>
+              <div class="modal-footer">
+                <button id="aiCancelBtn" class="secondary">Annuler</button>
+                <button id="aiGenerateBtn" class="primary">Générer</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- RIGHT: Command Panel -->
+        <aside class="command-panel">
+          <div class="panel-tabs">
+            <button class="active" data-cmd-tab="create">Créer</button>
+            <button data-cmd-tab="modify">Modifier</button>
+            <button data-cmd-tab="material">Matériau</button>
+            <button data-cmd-tab="display">Pipeline</button>
+          </div>
+
+          <div class="panel-content">
+
+            <!-- Tab: Créer -->
+            <div class="cmd-tab active" id="cmdCreate">
+              <!-- Primitives & Construction -->
+              <section>
+                <h2>Primitives</h2>
+                <div class="tool-grid">
+                  <button data-add="box">Cube</button>
+                  <button data-add="sphere">Sphère</button>
+                  <button data-add="cone">Cône</button>
+                  <button data-add="cylinder">Cylindre</button>
+                </div>
+              </section>
+              <section>
+                <h2>Dessin 2D</h2>
+                <div class="tool-grid">
+                  <button data-draw-tool="point">Point</button>
+                  <button data-draw-tool="line">Ligne</button>
+                  <button data-draw-tool="rectangle">Rectangle</button>
+                  <button data-draw-tool="circle">Cercle</button>
+                  <button data-draw-tool="arc">Arc</button>
+                  <button data-draw-tool="profile">Profile</button>
+                  <button id="extrude2dBtn">Extrude</button>
+                  <button id="revolveBtn">Revolve</button>
+                </div>
+              </section>
+              <section>
+                <h2>Construction</h2>
+                <label>Largeur <input id="roomWidth" type="number" min="2" max="30" step="0.5" value="7" /></label>
+                <label>Profondeur <input id="roomDepth" type="number" min="2" max="30" step="0.5" value="5" /></label>
+                <label>Hauteur <input id="roomHeight" type="number" min="2" max="8" step="0.2" value="3" /></label>
+                <button id="applyRoomBtn" class="wide primary">Construire pièce</button>
+              </section>
+              <section>
+                <h2>Plan 2D → 3D</h2>
+                <button id="importPlanBtn" class="wide">Importer plan 2D</button>
+                <div class="tool-grid compact">
+                  <button class="active" data-plan-tool="wall">Mur</button>
+                  <button data-plan-tool="door">Porte</button>
+                  <button data-plan-tool="window">Fenêtre</button>
+                  <button id="clearPlanBtn">Clear</button>
+                </div>
+                <label>Échelle px/m <input id="planScale" type="number" min="20" max="160" step="5" value="70" /></label>
+                <button id="buildFromPlanBtn" class="wide primary">Convertir en 3D</button>
+                <p id="planStatus" class="hint">Clique et glisse dans le plan pour tracer.</p>
+              </section>
+              <section>
+                <h2>Mobilier</h2>
+                <div class="library-group">
+                  <p>Base</p>
+                  <div class="tool-grid">
+                    <button data-add="wall">Mur</button>
+                    <button data-add="door">Porte</button>
+                    <button data-add="window">Fenêtre</button>
+                  </div>
+                </div>
+                <div class="library-group">
+                  <p>Salon</p>
+                  <div class="tool-grid">
+                    <button data-add="sofa">Sofa</button>
+                    <button data-add="table">Table</button>
+                    <button data-add="tvUnit">Meuble TV</button>
+                    <button data-add="tv">TV</button>
+                    <button data-add="armchair">Fauteuil</button>
+                    <button data-add="pouf">Pouf</button>
+                    <button data-add="coffeeTable">Table basse</button>
+                  </div>
+                </div>
+                <div class="library-group">
+                  <p>Cuisine</p>
+                  <div class="tool-grid">
+                    <button data-add="fridge">Frigo</button>
+                    <button data-add="oven">Four</button>
+                    <button data-add="washer">Lave linge</button>
+                    <button data-add="cooktop">Plaque</button>
+                  </div>
+                </div>
+                <div class="library-group">
+                  <p>Salle à manger</p>
+                  <div class="tool-grid">
+                    <button data-add="diningTable">Table manger</button>
+                    <button data-add="diningChair">Chaise</button>
+                  </div>
+                </div>
+                <div class="library-group">
+                  <p>Chambre</p>
+                  <div class="tool-grid">
+                    <button data-add="bed">Lit</button>
+                    <button data-add="wardrobe">Armoire</button>
+                    <button data-add="nightstand">Table nuit</button>
+                  </div>
+                </div>
+                <div class="library-group">
+                  <p>Bureau</p>
+                  <div class="tool-grid">
+                    <button data-add="desk">Bureau</button>
+                    <button data-add="bookshelf">Bibliothèque</button>
+                    <button data-add="officeChair">Chaise bureau</button>
+                  </div>
+                </div>
+                <div class="library-group">
+                  <p>Ouvertures</p>
+                  <div class="tool-grid">
+                    <button data-add="doorHandle">Poignée porte</button>
+                    <button data-add="windowHandle">Poignée fenêtre</button>
+                    <button data-add="curtain">Rideaux</button>
+                    <button data-add="stairs">Escalier</button>
+                  </div>
+                </div>
+                <div class="library-group">
+                  <p>Lumière & sanitaire</p>
+                  <div class="tool-grid">
+                    <button data-add="lamp">Lampe</button>
+                    <button data-add="spotlight">Spot</button>
+                    <button data-add="toilet">Toilette</button>
+                    <button data-add="sink">Lavabo</button>
+                    <button data-add="shower">Douche</button>
+                    <button data-add="bathtub">Baignoire</button>
+                  </div>
+                </div>
+                <div class="library-group">
+                  <p>Jardin</p>
+                  <div class="tool-grid">
+                    <button data-add="plant">Plante</button>
+                    <button data-add="tree">Arbre</button>
+                    <button data-add="flowerPot">Pot fleur</button>
+                    <button data-add="bench">Banc</button>
+                  </div>
+                </div>
+              </section>
+              <section>
+                <h2>Image 360°</h2>
+                <button id="importPanoramaBtn" class="wide">Importer panorama</button>
+                <button id="exportPanoramaBtn" class="wide">Exporter 360°</button>
+                <p id="panoramaStatus" class="hint">Aucune image chargée</p>
+              </section>
+              <section>
+                <h2>Landscape</h2>
+                <button id="createTerrainBtn" class="wide primary">Créer terrain</button>
+                <label>Taille <input id="terrainSize" type="number" min="5" max="100" step="1" value="20" /></label>
+                <label>Résolution <input id="terrainRes" type="number" min="8" max="256" step="8" value="64" /></label>
+                <div class="tool-grid compact">
+                  <button class="active" data-sculpt="raise">Élever</button>
+                  <button data-sculpt="lower">Creuser</button>
+                  <button data-sculpt="smooth">Lisser</button>
+                  <button data-sculpt="flatten">Aplatir</button>
+                </div>
+                <label>Taille pinceau <input id="brushSize" type="range" min="0.5" max="10" step="0.5" value="2" /></label>
+                <label>Force <input id="brushStrength" type="range" min="0.01" max="1" step="0.01" value="0.1" /></label>
+                <button id="addTreesBtn" class="wide primary">Ajouter arbres</button>
+              </section>
+            </div>
+
+            <!-- Tab: Modifier -->
+            <div class="cmd-tab" id="cmdModify">
+              <section>
+                <h2>Stack de modificateurs</h2>
+                <div id="modifierStack" class="modifier-stack">
+                  <div class="stack-empty">Aucun modificateur</div>
+                </div>
+              </section>
+              <section>
+                <h2>Transformations</h2>
+                <div class="tool-grid">
+                  <button data-transform-mode="translate">Move</button>
+                  <button data-transform-mode="rotate">Rotate</button>
+                  <button data-transform-mode="scale">Scale</button>
+                  <button id="scaleUpBtn">Agrandir</button>
+                </div>
+                <div id="inspector" class="inspector axis-grid">
+                  <label>Nom <input id="objectName" type="text" /></label>
+                </div>
+                <p id="emptyInspector" class="hint hidden">Sélectionne un objet dans la scène.</p>
+                <div class="axis-grid">
+                  <label>X <input id="posX" type="number" step="0.1" /></label>
+                  <label>Y <input id="posY" type="number" step="0.1" /></label>
+                  <label>Z <input id="posZ" type="number" step="0.1" /></label>
+                  <label>Rot X <input id="rotX" type="number" step="1" /></label>
+                  <label>Rot Y <input id="rotY" type="number" step="1" /></label>
+                  <label>Rot Z <input id="rotZ" type="number" step="1" /></label>
+                  <label>W <input id="scaleX" type="number" min="0.1" step="0.1" /></label>
+                  <label>H <input id="scaleY" type="number" min="0.1" step="0.1" /></label>
+                  <label>D <input id="scaleZ" type="number" min="0.1" step="0.1" /></label>
+                </div>
+              </section>
+              <section>
+                <h2>Opérations</h2>
+                <div class="tool-grid">
+                  <button id="booleanBtn">Boolean CSG</button>
+                  <button id="connectBtn">Connect</button>
+                  <button id="separateBtn">Inner</button>
+                  <button id="deformBtn">Deform</button>
+                </div>
+              </section>
+              <section>
+                <h2>Mesh Editor</h2>
+                <div class="tool-grid">
+                  <button id="meshSubdivideBtn">Subdiviser</button>
+                  <button id="meshExtrudeBtn">Extruder</button>
+                  <button id="meshBevelBtn">Biseauter</button>
+                  <button id="meshSmoothBtn">Lisser</button>
+                  <button id="meshFlatBtn">Faces</button>
+                  <button id="meshMirrorBtn">Miroir</button>
+                  <button id="meshWeldBtn">Souder</button>
+                  <button id="meshCollapseBtn">Collapse</button>
+                </div>
+              </section>
+              <section>
+                <h2>Répétition</h2>
+                <div class="tool-grid">
+                  <button id="arrayBtn">Array</button>
+                  <button id="mirrorBtn">Mirror</button>
+                </div>
+              </section>
+            </div>
+
+            <!-- Tab: Matériau -->
+            <div class="cmd-tab" id="cmdMaterial">
+              <section>
+                <h2>Matériaux</h2>
+                <div class="material-grid">
+                  <button data-material="paintWarm"><span style="--swatch:#e8dfcf"></span>Paint warm</button>
+                  <button data-material="paintCool"><span style="--swatch:#dfe5e2"></span>Paint cool</button>
+                  <button data-material="concrete"><span style="--swatch:#8e9189"></span>Béton</button>
+                  <button data-material="reinforcedConcrete"><span style="--swatch:#6f736d"></span>Béton armé</button>
+                  <button data-material="brick"><span style="--swatch:#a8543f"></span>Brique</button>
+                  <button data-material="woodOak"><span style="--swatch:#b98a55"></span>Chêne</button>
+                  <button data-material="woodWalnut"><span style="--swatch:#6f4a32"></span>Noyer</button>
+                  <button data-material="tile"><span style="--swatch:#d8d1c2"></span>Carrelage</button>
+                  <button data-material="glass"><span style="--swatch:#88c8d8"></span>Verre</button>
+                  <button data-material="metal"><span style="--swatch:#8f9698"></span>Métal</button>
+                  <button data-material="fabric"><span style="--swatch:#bb7d5a"></span>Tissu</button>
+                  <button data-material="ceramic"><span style="--swatch:#f2eee4"></span>Ceramic</button>
+                </div>
+              </section>
+              <section>
+                <h2>Style intérieur</h2>
+                <label>
+                  <select id="stylePreset">
+                    <option value="american">American</option>
+                    <option value="european">Europe</option>
+                    <option value="industrial">Industriel béton</option>
+                    <option value="mediterranean">Méditerranéen</option>
+                  </select>
+                </label>
+                <button id="applyStyleBtn" class="wide">Appliquer le style</button>
+              </section>
+              <section>
+                <h2>Environnement</h2>
+                <div class="tool-grid compact">
+                  <button class="active" data-env-preset="">Aucun</button>
+                  <button data-env-preset="studio">Studio</button>
+                  <button data-env-preset="outdoor">Extérieur</button>
+                  <button data-env-preset="sunset">Coucher</button>
+                  <button data-env-preset="night">Nuit</button>
+                </div>
+                <button id="importHDRBtn" class="wide">Charger HDR</button>
+                <input id="hdrInput" type="file" accept=".hdr,.exr" hidden />
+              </section>
+              <section>
+                <h2>Matériaux terrain</h2>
+                <div class="material-grid">
+                  <button data-land-mat="grass"><span style="--swatch:#5a8a4a"></span>Herbe</button>
+                  <button data-land-mat="dirt"><span style="--swatch:#8B6B4A"></span>Terre</button>
+                  <button data-land-mat="rock"><span style="--swatch:#6a6a6a"></span>Roche</button>
+                  <button data-land-mat="snow"><span style="--swatch:#dde0e6"></span>Neige</button>
+                  <button data-land-mat="sand"><span style="--swatch:#c4b896"></span>Sable</button>
+                  <button data-land-mat="brick"><span style="--swatch:#8a4a3a"></span>Brique</button>
+                  <button data-land-mat="stone"><span style="--swatch:#7a7a7a"></span>Pierre</button>
+                </div>
+              </section>
+              <section>
+                <h2>Couleur de l'objet</h2>
+                <input id="objectColor" type="color" />
+                <label>Matériau
+                  <select id="objectMaterial">
+                    <option value="paintWarm">Paint warm</option>
+                    <option value="paintCool">Paint cool</option>
+                    <option value="concrete">Béton</option>
+                    <option value="reinforcedConcrete">Béton armé</option>
+                    <option value="brick">Mur brique</option>
+                    <option value="woodOak">Chêne</option>
+                    <option value="woodWalnut">Noyer</option>
+                    <option value="tile">Carrelage</option>
+                    <option value="glass">Verre</option>
+                    <option value="metal">Métal</option>
+                    <option value="fabric">Tissu</option>
+                  </select>
+                </label>
+              </section>
+            </div>
+
+            <!-- Tab: Pipeline -->
+            <div class="cmd-tab" id="cmdDisplay">
+              <section>
+                <h2>Mode</h2>
+                <div class="segmented" role="tablist">
+                  <button class="active" id="modelModeBtn">3D</button>
+                  <button id="planModeBtn">Plan</button>
+                  <button id="panoModeBtn">360</button>
+                  <button id="splitModeBtn">Split</button>
+                </div>
+              </section>
+              <section>
+                <h2>Pipeline 6 étapes</h2>
+                <ol id="pipeline" class="pipeline">
+                  <li data-pipeline="pano"><span class="step-num">1</span><span class="step-label">Importer une image 360</span><span class="step-status"></span></li>
+                  <li data-pipeline="plan"><span class="step-num">2</span><span class="step-label">Importer ou tracer un plan 2D</span><span class="step-status"></span></li>
+                  <li data-pipeline="build"><span class="step-num">3</span><span class="step-label">Convertir le plan en construction 3D</span><span class="step-status"></span></li>
+                  <li data-pipeline="furnish"><span class="step-num">4</span><span class="step-label">Ajouter mobilier et matériaux</span><span class="step-status"></span></li>
+                  <li data-pipeline="save"><span class="step-num">5</span><span class="step-label">Enregistrer en .pix</span><span class="step-status"></span></li>
+                  <li data-pipeline="export"><span class="step-num">6</span><span class="step-label">Exporter OBJ / GLB</span><span class="step-status"></span></li>
+                </ol>
+              </section>
+              <section>
+                <h2>Pipeline Dessin 2D</h2>
+                <ol id="drawPipeline" class="pipeline">
+                  <li data-draw-pipeline="draw2d"><span class="step-num">1</span><span class="step-label">Dessiner des formes 2D</span><span class="step-status"></span></li>
+                  <li data-draw-pipeline="extrude"><span class="step-num">2</span><span class="step-label">Extruder / Revolver en 3D</span><span class="step-status"></span></li>
+                  <li data-draw-pipeline="exportDraw"><span class="step-num">3</span><span class="step-label">Exporter OBJ / GLB</span><span class="step-status"></span></li>
+                </ol>
+                <div class="tool-grid compact">
+                  <button id="draw2dClearBtn">Effacer formes</button>
+                  <button id="draw2dPipelineExportBtn">Export OBJ</button>
+                </div>
+              </section>
+              <section>
+                <h2>Projet</h2>
+                <div class="tool-grid">
+                  <button id="newProjectBtn">Nouveau</button>
+                  <button id="openProjectBtn">Ouvrir</button>
+                  <button id="saveProjectBtn">Sauvegarder</button>
+                  <button id="saveAsProjectBtn">Sauvegarder sous</button>
+                  <button id="exportObjBtn">Export OBJ</button>
+                  <button id="exportGLBBtn">Export GLB</button>
+                  <button id="importGLBBtn">Import GLB</button>
+                </div>
+              </section>
+            </div>
+
+          </div>
+        </aside>
+      </main>
+
+      <!-- ===== 3. STATUS BAR ===== -->
+      <footer class="status-bar">
+        <span id="statusCoords" class="status-item">X: 0.00  Y: 0.00  Z: 0.00</span>
+        <span class="status-div"></span>
+        <span id="statusMode" class="status-item">Mode: Objet</span>
+        <span class="status-div"></span>
+        <span id="statusInfo" class="status-item">Aucun objet sélectionné</span>
+        <span class="status-div"></span>
+        <span id="statusHint" class="status-item hint">PixelSoftwareDesign @2026</span>
+      </footer>
+    </div>
+
+    <!-- Context Menu -->
+    <div id="ctxMenu" class="ctx-menu hidden">
+      <div class="ctx-section">
+        <div class="ctx-item" data-ctx="move" data-shortcut="W"><span class="ctx-icon">⤨</span> Déplacer</div>
+        <div class="ctx-item" data-ctx="rotate" data-shortcut="E"><span class="ctx-icon">↻</span> Tourner</div>
+        <div class="ctx-item" data-ctx="scale" data-shortcut="R"><span class="ctx-icon">⤢</span> Échelle</div>
+      </div>
+      <div class="ctx-divider"></div>
+      <div class="ctx-section">
+        <div class="ctx-item" data-ctx="duplicate" data-shortcut="Ctrl+D"><span class="ctx-icon">❐</span> Dupliquer</div>
+        <div class="ctx-item" data-ctx="hide" data-shortcut="H"><span class="ctx-icon">◌</span> Masquer</div>
+        <div class="ctx-item" data-ctx="delete" data-shortcut="Del"><span class="ctx-icon">✕</span> Supprimer</div>
+      </div>
+      <div class="ctx-divider"></div>
+      <div class="ctx-section">
+        <div class="ctx-item" data-ctx="subdivide"><span class="ctx-icon">◈</span> Subdiviser</div>
+        <div class="ctx-item" data-ctx="extrude"><span class="ctx-icon">▣</span> Extruder</div>
+        <div class="ctx-item" data-ctx="bevel"><span class="ctx-icon">◻</span> Biseauter</div>
+      </div>
+      <div class="ctx-divider"></div>
+      <div class="ctx-section">
+        <div class="ctx-item" data-ctx="focus"><span class="ctx-icon">◎</span> Focus</div>
+        <div class="ctx-item" data-ctx="selectAll" data-shortcut="Ctrl+A"><span class="ctx-icon">☐</span> Tout sélectionner</div>
+        <div class="ctx-item" data-ctx="deselectAll"><span class="ctx-icon">☐</span> Désélectionner</div>
+      </div>
+    </div>
+
+    <!-- Hidden file inputs -->
+    <input id="panoramaInput" type="file" accept="image/*" hidden />
+    <input id="planInput" type="file" accept="image/*" hidden />
+    <input id="projectInput" type="file" accept=".pix,.inrproject,application/json" hidden />
+    <input id="glbInput" type="file" accept=".glb,.gltf" hidden />
+
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.165.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.165.0/examples/jsm/",
+          "three-csg-ts": "https://cdn.jsdelivr.net/npm/three-csg-ts@3.2.0/+esm"
+        }
+      }
+    </script>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
