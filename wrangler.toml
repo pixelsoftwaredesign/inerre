@@ -1,0 +1,7 @@
+name = "iner"
+compatibility_date = "2024-11-01"
+pages_build_output_dir = "cf-deploy"
+
+[[kv_namespaces]]
+binding = "iner_sessions"
+id = "18f4fdaea9bc4199984b85e452ddce1b"
