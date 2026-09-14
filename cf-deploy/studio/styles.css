@@ -17,6 +17,7 @@
   --toolbar-h: 44px;
   --status-h: 30px;
   --panel-w: 240px;
+  --rail-w: 58px;
 }
 
 * { box-sizing: border-box; }
@@ -71,58 +72,75 @@ select { appearance: none; }
    ============================================================ */
 .app-shell {
   display: grid;
+  grid-template-columns: var(--rail-w) 1fr;
   grid-template-rows: var(--toolbar-h) auto 1fr var(--status-h);
   width: 100vw;
   height: 100vh;
 }
-.main-toolbar { grid-row: 1; }
-.mode-strips { grid-row: 2; }
-.workspace { grid-row: 3; }
-.status-bar { grid-row: 4; }
+.mode-rail { grid-column: 1; grid-row: 1 / 5; }
+.main-toolbar { grid-column: 2; grid-row: 1; }
+.mode-strips { grid-column: 2; grid-row: 2; }
+.workspace { grid-column: 2; grid-row: 3; }
+.status-bar { grid-column: 2; grid-row: 4; }
 
 /* ============================================================
-   1b. MODE BAR + TOOLS CONTEXTUELS (architecture modulaire)
+   1b. MODE RAIL VERTICAL + TOOLS CONTEXTUELS (architecture modulaire)
    ============================================================ */
-.modebar {
+.mode-rail {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   gap: 6px;
-  height: 34px;
-  padding: 0 10px;
+  padding: 8px 6px;
   background: var(--tb-bg);
-  border-bottom: 1px solid var(--line);
-  overflow-x: auto;
+  border-right: 1px solid var(--line);
+  overflow-y: auto;
   scrollbar-width: none;
 }
-.modebar::-webkit-scrollbar { display: none; }
-.modebar-label {
-  font-size: 10px;
+.mode-rail::-webkit-scrollbar { display: none; }
+.mode-rail-label {
+  font-size: 9px;
   font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.12em;
   color: var(--muted);
-  margin-right: 6px;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  align-self: center;
+  margin: 2px 0 6px;
 }
-.modebar button {
-  min-height: 24px;
-  font-weight: 600;
-  border-radius: 99px;
-  padding: 0 14px;
+.mode-rail button {
+  min-height: 34px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border-radius: 8px;
+  padding: 6px 2px;
+  white-space: normal;
+  line-height: 1.15;
+  text-align: center;
 }
-.modebar button.active {
+.mode-rail button.active {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 28%, var(--panel-2));
   color: #fff;
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent);
 }
 
+.mode-strips {
+  display: flex;
+  justify-content: center;
+}
 .context-tools {
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 5px 10px;
+  margin: 4px 10px;
   background: color-mix(in srgb, var(--panel) 94%, var(--accent) 4%);
-  border-bottom: 1px solid var(--line);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  max-width: 100%;
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -166,6 +184,30 @@ select { appearance: none; }
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
+}
+.mt-group.mt-range {
+  gap: 6px;
+  padding: 3px 8px;
+}
+.mt-range label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.mt-range input[type="range"] {
+  width: 80px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.mt-range span {
+  min-width: 30px;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  color: var(--accent);
+  text-align: right;
 }
 .mt-label {
   font-size: 10px;
@@ -356,7 +398,7 @@ select { appearance: none; }
    ============================================================ */
 .workspace {
   display: grid;
-  grid-template-columns: var(--panel-w) 1fr var(--panel-w);
+  grid-template-columns: var(--panel-w) var(--panel-w) 1fr var(--panel-w);
   min-height: 0;
   overflow: hidden;
 }
@@ -365,6 +407,7 @@ select { appearance: none; }
    LEFT — Scene Explorer
    ============================================================ */
 .scene-explorer {
+  grid-column: 1;
   display: grid;
   grid-template-rows: auto 1fr auto;
   background: var(--panel);
@@ -488,6 +531,7 @@ select { appearance: none; }
    ============================================================ */
 .viewport-container {
   position: relative;
+  grid-column: 3;
   width: 100%;
   height: 100%;
   overflow: hidden;
@@ -533,12 +577,62 @@ select { appearance: none; }
    RIGHT — Command Panel
    ============================================================ */
 .command-panel {
+  grid-column: 4;
   display: grid;
   grid-template-rows: auto 1fr;
   background: var(--panel);
   border-left: 1px solid var(--line);
   overflow: hidden;
 }
+
+/* ============================================================
+   LEFT-B — Layers
+   ============================================================ */
+.layers-panel {
+  grid-column: 2;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  overflow: hidden;
+}
+.panel-title {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.layer-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  overflow-y: auto;
+}
+.layer-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: var(--panel-2);
+  border: 1px solid transparent;
+}
+.layer-row button.layer-eye {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  font-size: 12px;
+  opacity: 0.55;
+}
+.layer-row button.layer-eye.active { opacity: 1; color: var(--accent); }
+.layer-row .layer-name { flex: 1; font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.layer-row .layer-count { font-size: 10px; color: var(--muted); }
+.layer-row.off { opacity: 0.55; }
 
 .panel-tabs {
   display: flex;
@@ -1415,15 +1509,16 @@ input[type="range"] {
    Responsive
    ============================================================ */
 @media (max-width: 1100px) {
-  .workspace { grid-template-columns: 200px 1fr 200px; }
+  .workspace { grid-template-columns: 190px 170px 1fr 200px; }
 }
 @media (max-width: 860px) {
-  .workspace { grid-template-columns: 180px 1fr; }
+  .workspace { grid-template-columns: 180px 160px 1fr; }
   .command-panel { display: none; }
 }
 @media (max-width: 640px) {
   .workspace { grid-template-columns: 1fr; grid-template-rows: auto 60vh; }
   .scene-explorer { display: none; }
+  .layers-panel { display: none; }
   .main-toolbar { flex-wrap: wrap; height: auto; min-height: var(--toolbar-h); }
   .app-shell { grid-template-rows: auto 1fr var(--status-h); }
 }

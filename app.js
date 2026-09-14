@@ -18,6 +18,7 @@ import { CadMode } from "./src/modes/CadMode.js";
 import { Panorama360Mode } from "./src/modes/Panorama360Mode.js";
 import { CinematicMode } from "./src/modes/CinematicMode.js";
 import { LandscapeMode } from "./src/modes/LandscapeMode.js";
+import { SculptMode } from "./src/modes/SculptMode.js";
 
 // ============================================================
 // 1. Noyau Mathématique Vectoriel 2D
@@ -920,7 +921,17 @@ const state = {
   physics: { collision: false },
   anim: { playing: true, t: 0 },
   cine: { shots: [], objKeys: [], index: -1, playing: false, t: 0, rec: null, loop: false, duration: null },
+  sculpt: { brush: "grab", radius: 25, strength: 0.5, symmetry: true },
 };
+
+const LAYER_DEFS = [
+  { key: "floor", name: "Sols" },
+  { key: "walls", name: "Murs & Cloisons" },
+  { key: "furniture", name: "Mobilier" },
+  { key: "decor", name: "Décor" },
+  { key: "terrain", name: "Terrain" },
+  { key: "plan2d", name: "2D / Plan" },
+];
 
 const materialLibrary = {
   paintWarm: { label: "Paint warm", color: "#e8dfcf", roughness: 0.82 },
@@ -1166,6 +1177,7 @@ const MEASURE_LIST = [];
 let __engine = null;
 let __sceneManager = null;
 let meshEditObj = null;
+let sculptModeObj = null;
 
 initLighting();
 initQuadView();
@@ -1305,7 +1317,10 @@ function renderDraw() {
     drawDrawGrid(ctx, rect.width, rect.height);
   }
 
-  state.draw.shapes.forEach((shape) => drawShape(ctx, shape, false));
+  state.draw.shapes.forEach((shape) => {
+    if (state.hiddenLayers && state.hiddenLayers[layerOfType(shape.type)]) return;
+    drawShape(ctx, shape, false);
+  });
   if (state.draw.current) drawShape(ctx, state.draw.current, true);
   updateDrawPipeline();
 }
@@ -3263,6 +3278,34 @@ function bindUI() {
   renderer.domElement.addEventListener("pointermove", moveSculpt);
   renderer.domElement.addEventListener("pointerup", endSculpt);
 
+  document.querySelectorAll("[data-sculpt-brush]").forEach((button) => {
+    button.addEventListener("click", () => setSculptBrush(button.dataset.sculptBrush));
+  });
+  const sculptRadiusInput = document.querySelector("#sculptRadius");
+  const sculptStrengthInput = document.querySelector("#sculptStrength");
+  sculptRadiusInput?.addEventListener("input", () => {
+    state.sculpt.radius = parseFloat(sculptRadiusInput.value);
+    const v = document.querySelector("#sculptRadiusVal");
+    if (v) v.textContent = sculptRadiusInput.value;
+  });
+  sculptStrengthInput?.addEventListener("input", () => {
+    state.sculpt.strength = parseFloat(sculptStrengthInput.value);
+    const v = document.querySelector("#sculptStrengthVal");
+    if (v) v.textContent = `${Math.round(state.sculpt.strength * 100)}%`;
+  });
+  document.querySelector("#sculptSym")?.addEventListener("click", () => {
+    state.sculpt.symmetry = !state.sculpt.symmetry;
+    const b = document.querySelector("#sculptSym");
+    if (b) {
+      b.classList.toggle("active", state.sculpt.symmetry);
+      b.textContent = `Symétrie X: ${state.sculpt.symmetry ? "ON" : "OFF"}`;
+    }
+  });
+  const sculptPtr = () => __engine?.active?.id === "SCULPT";
+  renderer.domElement.addEventListener("pointerdown", (e) => { if (sculptPtr()) sculptModeObj?.onPointerDown(e); });
+  renderer.domElement.addEventListener("pointermove", (e) => { if (sculptPtr()) sculptModeObj?.onPointerMove(e); });
+  renderer.domElement.addEventListener("pointerup", (e) => { if (sculptPtr()) sculptModeObj?.onPointerUp(e); });
+
   document.querySelector("#modelModeBtn").addEventListener("click", () => setMode("model"));
   document.querySelector("#planModeBtn").addEventListener("click", () => setMode("plan"));
   document.querySelector("#panoModeBtn").addEventListener("click", () => setMode("pano"));
@@ -4869,6 +4912,52 @@ function primaryId() {
   return state.selectedIds.length ? state.selectedIds[state.selectedIds.length - 1] : null;
 }
 
+function layerOfType(type) {
+  if (type === "wall" || type === "door" || type === "window") return "walls";
+  if (type === "floor" || type === "roof" || type === "ceiling" || type === "carpet" || type === "rug" || type === "platform") return "floor";
+  if (type === "rock" || type === "terrain" || type === "ground" || type === "hill" || type === "tree" || type === "bush" || type === "grass" || type === "shrub") return "terrain";
+  if (type === "point" || type === "line" || type === "rectangle" || type === "circle" || type === "arc" || type === "profile") return "plan2d";
+  if (type === "gas" || type === "particles" || type === "cloth" || type === "water" || type === "lamp" || type === "light" || type === "ai") return "decor";
+  return "furniture";
+}
+function renderLayerList() {
+  const list = document.getElementById("layerList");
+  if (!list) return;
+  state.hiddenLayers = state.hiddenLayers || {};
+  const counts = { floor: 0, walls: 0, furniture: 0, decor: 0, terrain: 0, plan2d: 0 };
+  state.objects.forEach((o) => { const k = layerOfType(o.type); if (counts[k] !== undefined) counts[k]++; });
+  state.draw.shapes.forEach(() => { counts.plan2d++; });
+  list.innerHTML = "";
+  LAYER_DEFS.forEach((def) => {
+    const off = !!state.hiddenLayers[def.key];
+    const row = document.createElement("div");
+    row.className = `layer-row${off ? " off" : ""}`;
+    row.innerHTML =
+      `<button class="layer-eye${off ? "" : " active"}" data-layer="${def.key}" title="Afficher / masquer ${def.name}">${off ? "◌" : "●"}</button>` +
+      `<span class="layer-name">${def.name}</span>` +
+      `<span class="layer-count">${counts[def.key]}</span>`;
+    row.querySelector(".layer-eye").addEventListener("click", () => {
+      state.hiddenLayers[def.key] = !state.hiddenLayers[def.key];
+      applyLayersVisibility();
+      renderLayerList();
+      renderDraw();
+    });
+    list.appendChild(row);
+  });
+}
+function applyLayersVisibility() {
+  state.hiddenLayers = state.hiddenLayers || {};
+  [objectGroup, roomGroup, landscapeGroup].forEach((group) => {
+    if (!group) return;
+    group.children.forEach((child) => {
+      const spec = findSpec(child.userData.id);
+      if (!spec) return;
+      const k = layerOfType(spec.type);
+      child.visible = !state.hiddenLayers[k];
+    });
+  });
+}
+
 function renderObjectList() {
   dom.objectList.innerHTML = "";
   state.objects.forEach((object) => {
@@ -4892,6 +4981,7 @@ function renderObjectList() {
   updateStatusBar();
   updatePipeline();
   renderCustomLibrary();
+  renderLayerList();
 }
 
 function renderInspector() {
@@ -6194,6 +6284,14 @@ function setSculptTool(tool) {
   updateStatusBar();
 }
 
+function setSculptBrush(brush) {
+  state.sculpt.brush = brush;
+  document.querySelectorAll("[data-sculpt-brush]").forEach((b) => {
+    b.classList.toggle("active", b.dataset.sculptBrush === brush);
+  });
+  updateStatusBar();
+}
+
 /* ---- Connect ---- */
 function connectObjects() {
   pushUndo();
@@ -6617,6 +6715,11 @@ function setupModes() {
     setStatusInfo, pushUndo, updateStatusBar,
   };
   meshEditObj = new MeshEditMode(meshCtx);
+  const sculptCtx = {
+    state, dom, scene, camera, renderer, objectGroup, controls,
+    setStatusInfo, pushUndo, updateStatusBar,
+  };
+  sculptModeObj = new SculptMode(sculptCtx);
   const appCtx = {
     state, dom,
     setLegacyMode: (m) => setMode(m),
@@ -6633,6 +6736,7 @@ function setupModes() {
   __engine = new Engine({ onModeChange: (mode) => applyModeVisibility(mode.id) });
   __engine.registerMode(new CadMode(appCtx));
   __engine.registerMode(meshEditObj);
+  __engine.registerMode(sculptModeObj);
   __engine.registerMode(new Panorama360Mode(appCtx));
   __engine.registerMode(new CinematicMode(appCtx));
   __engine.registerMode(new LandscapeMode(appCtx));
@@ -7408,7 +7512,7 @@ function updateStatusBar() {
     state.deform.active ? `Deform: ${state.deform.type}` :
     state.landscape.mesh ? `Sculpt: ${state.landscape.tool}` :
     state.subObjectLevel !== "object" ? `Edit ${state.subObjectLevel}` :
-    __engine?.active?.id && __engine.active.id !== "CAD" ? ({ MESH_EDIT: "Mesh Edit", PANORAMA_360: "360°", CINEMATIC: "Cinématique", LANDSCAPE: "Paysage" })[__engine.active.id] || __engine.active.id :
+    __engine?.active?.id && __engine.active.id !== "CAD" ? ({ MESH_EDIT: "Mesh Edit", SCULPT: "Sculpt", PANORAMA_360: "360°", CINEMATIC: "Cinématique", LANDSCAPE: "Paysage" })[__engine.active.id] || __engine.active.id :
     "Model";
   dom.statusMode.textContent = `Mode: ${mode}`;
 
@@ -7441,6 +7545,7 @@ function updateStatusBar() {
   else if (state.deform.active) hint = "Clique Deform pour cycler Bend / Twist / Taper";
   else if (state.landscape.mesh) hint = "Clique et glisse sur le terrain pour sculpter";
   else if (state.snap.enabled) hint = "Snapping actif";
+  else if (__engine?.active?.id === "SCULPT") hint = "Sculpt organique : glisse sur un objet pour sculpter · Brosses Grab / Smooth / Inflate / Crease · Symétrie X en option";
   else if (state.subObjectLevel !== "object") hint = "Clique le maillage pour sélectionner un élément · Extrude en mode face · Q pour désélectionner";
   else if (state.quadView) hint = "Alt+W: vue unique · Clique une étiquette pour activer la vue";
   else hint = "Q: sélection · W: déplacer · E: tourner · R: échelle · Alt+W: quad view";
@@ -7549,5 +7654,5 @@ function escapeHTML(value) {
 }
 
 if (new URLSearchParams(location.search).get("debug") === "1") {
-  window.__iner = { state, toProjectJSON, loadProject, createMesh, registerImported, renderCustomLibrary, addCustomInstance, engine: __engine, sceneManager: __sceneManager, meshEditMode: meshEditObj, setMode };
+  window.__iner = { state, toProjectJSON, loadProject, createMesh, registerImported, renderCustomLibrary, addCustomInstance, engine: __engine, sceneManager: __sceneManager, meshEditMode: meshEditObj, sculptMode: sculptModeObj, setMode };
 }

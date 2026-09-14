@@ -1,6 +1,7 @@
 const MODE_LABELS = {
   CAD: "CAD",
   MESH_EDIT: "Mesh Edit",
+  SCULPT: "Sculpt",
   PANORAMA_360: "360°",
   CINEMATIC: "Cinématique",
   LANDSCAPE: "Paysage",

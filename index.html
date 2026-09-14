@@ -20,6 +20,17 @@
   <body>
     <div class="app-shell">
 
+      <!-- ===== 0. MODE RAIL (vertical) ===== -->
+      <aside class="mode-rail" role="tablist" aria-label="Modes du studio">
+        <span class="mode-rail-label">Modes</span>
+        <button data-mode-btn="CAD" class="active" title="Conception : pièce, plan, mobilier, matériaux">CAD</button>
+        <button data-mode-btn="MESH_EDIT" title="Édition de maillage : sommets, arêtes, faces">Mesh Edit</button>
+        <button data-mode-btn="SCULPT" title="Sculpt organique : brosses Grab, Smooth, Inflate, Crease">Sculpt</button>
+        <button data-mode-btn="PANORAMA_360" title="Visite panoramique 360°">360°</button>
+        <button data-mode-btn="CINEMATIC" title="Cinématique : timeline, plans caméra, clés d'objet">Cinéma</button>
+        <button data-mode-btn="LANDSCAPE" title="Terrain, sculpture et végétation">Paysage</button>
+      </aside>
+
       <!-- ===== 1. MAIN TOOLBAR ===== -->
       <header class="main-toolbar">
         <div class="toolbar-left">
@@ -111,16 +122,7 @@
 
       <!-- ===== MODE BAR (architecture modulaire : machine à modes) ===== -->
       <div class="mode-strips">
-        <div class="modebar" role="tablist" aria-label="Modes du studio">
-          <span class="modebar-label">Modes</span>
-          <button data-mode-btn="CAD" class="active" title="Conception : pièce, plan, mobilier, matériaux">CAD</button>
-          <button data-mode-btn="MESH_EDIT" title="Édition de maillage : sommets, arêtes, faces">Mesh Edit</button>
-          <button data-mode-btn="PANORAMA_360" title="Visite panoramique 360°">360°</button>
-          <button data-mode-btn="CINEMATIC" title="Cinématique : timeline, plans caméra, clés d'objet">Cinéma</button>
-          <button data-mode-btn="LANDSCAPE" title="Terrain, sculpture et végétation">Paysage</button>
-        </div>
-
-        <!-- Contextual toolbar dispatcher — outils du mode actif, sans rechargement -->
+        <!-- Contextual toolbar dispatcher — outils du mode actif, centrés en haut -->
         <div class="context-tools" data-role="toolbar-dispatcher">
           <div class="ct-indicator">
             <span class="ct-ind-label">Mode actif</span>
@@ -157,6 +159,30 @@
               <div class="mt-group mt-ops">
                 <button id="meshExtruderBtn" title="Extruder la sélection / la face (E)"><svg class="ico" viewBox="0 0 16 16" width="14" height="14"><rect x="2" y="7" width="12" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.4"/><line x1="8" y1="7" x2="8" y2="3" stroke="currentColor" stroke-width="1.6"/><line x1="8" y1="3" x2="6" y2="5" stroke="currentColor" stroke-width="1.6"/><line x1="8" y1="3" x2="10" y2="5" stroke="currentColor" stroke-width="1.6"/></svg>Extruder</button>
                 <button id="meshBevelBtn2" title="Biseauter (chanfrein)">Biseauter</button>
+              </div>
+            </div>
+
+            <!-- SCULPT : brosses organiques -->
+            <div class="ct-group" data-modes="SCULPT">
+              <div class="mt-group">
+                <span class="mt-label">Brosses</span>
+                <button data-sculpt-brush="grab" class="active" title="Grab : déplacer les sommets sous le pinceau">Grab</button>
+                <button data-sculpt-brush="smooth" title="Smooth : lisser la surface">Smooth</button>
+                <button data-sculpt-brush="inflate" title="Inflate : gonfler le long des normales">Inflate</button>
+                <button data-sculpt-brush="crease" title="Crease : creuser des rainures">Crease</button>
+              </div>
+              <div class="mt-group mt-range">
+                <label for="sculptRadius">Rayon</label>
+                <input id="sculptRadius" type="range" min="5" max="100" value="25" />
+                <span id="sculptRadiusVal">25</span>
+              </div>
+              <div class="mt-group mt-range">
+                <label for="sculptStrength">Force</label>
+                <input id="sculptStrength" type="range" min="0.1" max="1" step="0.05" value="0.5" />
+                <span id="sculptStrengthVal">50%</span>
+              </div>
+              <div class="mt-group">
+                <button id="sculptSym" class="active" title="Symétrie miroir sur l'axe X">Symétrie X: ON</button>
               </div>
             </div>
 
@@ -247,6 +273,14 @@
               </div>
             </div>
           </div>
+        </aside>
+
+        <!-- LEFT-B: Layers -->
+        <aside class="layers-panel">
+          <div class="panel-header">
+            <span class="panel-title">Layers</span>
+          </div>
+          <div id="layerList" class="layer-list"></div>
         </aside>
 
         <!-- CENTER: Viewport -->
