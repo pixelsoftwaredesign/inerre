@@ -113,6 +113,7 @@
   </div>
   <script>
     (function () {
+      function rnd(a, b) { return (a + Math.random() * (b - a)).toFixed(0); }
       var els = document.querySelectorAll('.geo-bg .geo3d, .geo-bg .g');
       for (var i = 0; i < els.length; i++) {
         var e = els[i];
@@ -120,6 +121,10 @@
         e.style.top = (Math.random() * 85).toFixed(1) + '%';
         e.style.right = 'auto';
         e.style.bottom = 'auto';
+        if (e.classList.contains('geo-cube')) e.style.setProperty('--s', rnd(8, 26) + 'px');
+        else if (e.classList.contains('geo-sphere')) { var w = rnd(22, 66); e.style.width = w + 'px'; e.style.height = w + 'px'; }
+        else if (e.classList.contains('geo-torus')) { var t = rnd(26, 58); e.style.width = t + 'px'; e.style.height = t + 'px'; e.style.borderWidth = Math.max(6, t / 6) + 'px'; }
+        else if (e.classList.contains('geo-pyramid')) { var p = rnd(30, 58); e.style.width = p + 'px'; e.style.height = p + 'px'; }
         var d = parseFloat(getComputedStyle(e).animationDuration);
         if (!isNaN(d)) e.style.animationDelay = (-Math.random() * d).toFixed(3) + 's';
       }
