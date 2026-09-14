@@ -25,6 +25,82 @@ body {
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 15px;
   line-height: 1.65;
+  isolation: isolate;
+}
+
+/* ── Géométrie 3D animée en fond ── */
+.geo-bg {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  overflow: hidden;
+}
+.g {
+  position: absolute;
+  opacity: .055;
+  will-change: transform, translate;
+  backface-visibility: visible;
+}
+.g1 {
+  width: 140px; height: 140px;
+  clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+  background: var(--accent);
+  left: 4%; top: 10%;
+  animation: geoSpinX 32s linear infinite, geoDrift1 24s ease-in-out infinite;
+}
+.g2 {
+  width: 90px; height: 90px;
+  clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
+  background: var(--accent-2);
+  right: 10%; top: 6%;
+  animation: geoSpinY 26s linear infinite, geoDrift2 20s ease-in-out infinite;
+}
+.g3 {
+  width: 65px; height: 65px;
+  clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+  background: var(--accent);
+  left: 14%; top: 52%;
+  animation: geoSpinX 22s linear infinite reverse, geoDrift3 28s ease-in-out infinite;
+}
+.g4 {
+  width: 100px; height: 100px;
+  clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+  background: var(--accent-2);
+  right: 6%; bottom: 12%;
+  animation: geoSpinZ 38s linear infinite, geoDrift1 30s ease-in-out infinite reverse;
+}
+.g5 {
+  width: 55px; height: 55px;
+  border-radius: 50%;
+  background: var(--accent);
+  right: 22%; top: 42%;
+  animation: geoSpinY 20s linear infinite, geoDrift2 22s ease-in-out infinite;
+}
+.g6 {
+  width: 80px; height: 80px;
+  clip-path: polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%);
+  background: var(--accent);
+  left: 22%; bottom: 18%;
+  animation: geoSpinZ 28s linear infinite reverse, geoDrift3 26s ease-in-out infinite;
+}
+.g7 {
+  width: 45px; height: 45px;
+  clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
+  background: var(--accent-2);
+  right: 35%; bottom: 8%;
+  animation: geoSpinX 18s linear infinite, geoDrift1 18s ease-in-out infinite;
+}
+
+@keyframes geoSpinX { from { transform: rotateX(0) rotateZ(15deg); } to { transform: rotateX(360deg) rotateZ(15deg); } }
+@keyframes geoSpinY { from { transform: rotateY(0) rotateX(10deg); } to { transform: rotateY(360deg) rotateX(10deg); } }
+@keyframes geoSpinZ { from { transform: rotateZ(0) rotateY(8deg); } to { transform: rotateZ(360deg) rotateY(8deg); } }
+@keyframes geoDrift1 { 0%,100% { translate: 0 0; } 33% { translate: 30px -25px; } 66% { translate: -18px 12px; } }
+@keyframes geoDrift2 { 0%,100% { translate: 0 0; } 40% { translate: -22px 18px; } 80% { translate: 14px -28px; } }
+@keyframes geoDrift3 { 0%,100% { translate: 0 0; } 50% { translate: 16px 22px; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .g { animation: none !important; }
 }
 
 .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }

@@ -1,40 +1,39 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 160" width="640" height="160">
   <defs>
-    <linearGradient id="i2" x1="0" y1="0" x2="1" y2="1">
+    <linearGradient id="geo" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#44c8ae"/>
-      <stop offset="1" stop-color="#2a9c86"/>
+      <stop offset="1" stop-color="#1f8a76"/>
+    </linearGradient>
+    <linearGradient id="bar" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#44c8ae"/>
+      <stop offset="1" stop-color="#1f8a76"/>
     </linearGradient>
   </defs>
 
-  <!-- isometric room mark (animated geometric vector) -->
-  <g transform="translate(80 92)">
+  <!-- hexagon mark (animated geometric vector) -->
+  <g transform="translate(82 80)">
     <g>
       <animateTransform attributeName="transform" type="rotate" values="-6 0 0; 6 0 0; -6 0 0" dur="6s" repeatCount="indefinite" calcMode="spline" keySplines="0.45 0 0.55 1; 0.45 0 0.55 1"/>
-      <polygon points="0,0 -36,18 0,36 36,18" fill="#35b49c22"/>
-      <polygon points="0,0 -36,18 0,36 36,18" fill="none" stroke="#35b49c" stroke-width="3.5" stroke-linejoin="round"/>
-      <polygon points="0,0 36,18 36,-20 0,-38" fill="#35b49c14"/>
-      <polygon points="0,0 36,18 36,-20 0,-38" fill="none" stroke="#35b49c" stroke-width="3.5" stroke-linejoin="round">
-        <animate attributeName="opacity" values=".55;1;.55" dur="2.8s" repeatCount="indefinite"/>
-      </polygon>
-      <polygon points="0,0 -36,18 -36,-20 0,-38" fill="#e7c46a14"/>
-      <polygon points="0,0 -36,18 -36,-20 0,-38" fill="none" stroke="#e7c46a" stroke-width="3.5" stroke-linejoin="round">
-        <animate attributeName="opacity" values="1;.55;1" dur="2.8s" repeatCount="indefinite"/>
-      </polygon>
-      <line x1="0" y1="0" x2="0" y2="-38" stroke="#edece7" stroke-width="4" stroke-linecap="round">
-        <animate attributeName="opacity" values=".5;1;.5" dur="2.8s" repeatCount="indefinite"/>
-      </line>
-      <line x1="-36" y1="18" x2="0" y2="36" stroke="#e7c46a" stroke-width="3.5" stroke-linecap="round"/>
-      <line x1="0" y1="36" x2="36" y2="18" stroke="#35b49c" stroke-width="3.5" stroke-linecap="round"/>
+      <!-- hexagon ring -->
+      <polygon points="0,-58 50.2,-29 50.2,29 0,58 -50.2,29 -50.2,-29" fill="none" stroke="url(#geo)" stroke-width="4.5" stroke-linejoin="round"/>
+      <!-- inner fill -->
+      <polygon points="0,-43 37.2,-21.5 37.2,21.5 0,43 -37.2,21.5 -37.2,-21.5" fill="url(#geo)" opacity=".12"/>
+      <!-- triangle core (slow rotation) -->
+      <g>
+        <animateTransform attributeName="transform" type="rotate" values="0 0 0; 360 0 0" dur="28s" repeatCount="indefinite"/>
+        <polygon points="0,-38 33,22 -33,22" fill="url(#geo)" opacity=".85"/>
+      </g>
     </g>
+    <!-- orbiting golden dot -->
     <g>
       <animateTransform attributeName="transform" type="rotate" values="0 0 0; 360 0 0" dur="4s" repeatCount="indefinite"/>
-      <circle cx="44" cy="0" r="3" fill="#e7c46a"/>
+      <circle cx="0" cy="-58" r="6" fill="#e7c46a"/>
     </g>
   </g>
 
-  <text x="132" y="72" font-family="Arial, Helvetica, sans-serif" font-size="40" font-weight="700" fill="#edece7" letter-spacing="-1">Iner</text>
-  <text x="132" y="108" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="500" fill="#888d92" letter-spacing="4">STUDIO</text>
-  <rect x="132" y="120" width="56" height="3" rx="1.5" fill="url(#i2)">
+  <text x="155" y="72" font-family="Arial, Helvetica, sans-serif" font-size="40" font-weight="700" fill="#edece7" letter-spacing="-1">Iner</text>
+  <text x="155" y="108" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="500" fill="#888d92" letter-spacing="4">STUDIO</text>
+  <rect x="155" y="120" width="56" height="3" rx="1.5" fill="url(#bar)">
     <animate attributeName="opacity" values=".45;1;.45" dur="3.2s" repeatCount="indefinite"/>
   </rect>
 </svg>
