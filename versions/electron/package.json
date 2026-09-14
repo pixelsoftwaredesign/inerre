@@ -1,7 +1,7 @@
 {
   "name": "inerre-studio",
   "version": "1.0.0",
-  "description": "Inerre Studio - 3D Modeling & Design",
+  "description": "Iner Studio - 3D Modeling & Design",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -11,7 +11,7 @@
   },
   "build": {
     "appId": "com.inerre.studio",
-    "productName": "Inerre Studio",
+    "productName": "Iner Studio",
     "files": [
       "main.js",
       "preload.js",

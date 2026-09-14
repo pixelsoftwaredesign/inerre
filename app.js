@@ -427,7 +427,7 @@ class ProjectSerializer {
       ? Array.from(state.landscape.mesh.geometry.attributes.position.array)
       : null;
     return {
-      app: "Inerre Studio",
+      app: "Iner Studio",
       version: 2,
       savedAt: new Date().toISOString(),
       name: state.name,
@@ -449,7 +449,7 @@ class ProjectSerializer {
   }
 
   static toOBJ(mesh, name = "object") {
-    let out = `# Inerre Studio export
+    let out = `# Iner Studio export
 # ${new Date().toISOString()}
 o ${name}
 `;
@@ -5103,7 +5103,7 @@ function toProjectJSON() {
   const ls = state.landscape;
   const landscapeHeightData = ls.mesh ? Array.from(ls.mesh.geometry.attributes.position.array) : null;
   return {
-    app: "Inerre Studio",
+    app: "Iner Studio",
     version: 2,
     savedAt: new Date().toISOString(),
     name: state.name,

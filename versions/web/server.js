@@ -42,5 +42,5 @@ const server = http.createServer((request, response) => {
 });
 
 server.listen(port, () => {
-  console.log(`Inerre Studio: http://localhost:${port}`);
+  console.log(`Iner Studio: http://localhost:${port}`);
 });

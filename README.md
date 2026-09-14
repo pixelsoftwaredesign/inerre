@@ -1,4 +1,4 @@
-# Inerre Studio
+# Iner Studio
 
 Prototype de logiciel d'interior design avec image 360 et construction 3D.
 

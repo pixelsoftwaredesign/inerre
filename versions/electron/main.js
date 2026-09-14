@@ -11,7 +11,7 @@ function createWindow() {
     height: 900,
     minWidth: 900,
     minHeight: 600,
-    title: "Inerre Studio",
+    title: "Iner Studio",
     backgroundColor: "#111315",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -43,7 +43,7 @@ ipcMain.handle("dialog:openFile", async (event, filters) => {
 ipcMain.handle("dialog:saveFile", async (event, { content, defaultName, filters }) => {
   const result = await dialog.showSaveDialog(mainWindow, {
     defaultPath: defaultName || "projet.pix",
-    filters: filters || [{ name: "Projet Inerre", extensions: ["pix"] }],
+    filters: filters || [{ name: "Projet Iner", extensions: ["pix"] }],
   });
   if (result.canceled) return false;
   fs.writeFileSync(result.filePath, content, "utf-8");
