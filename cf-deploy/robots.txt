@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+
+Disallow: /api/
+Disallow: /studio/
+
+Sitemap: https://iner.pixelsoftwaredesign.xyz/sitemap.xml
