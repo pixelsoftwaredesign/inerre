@@ -92,6 +92,40 @@ body {
   animation: geoSpinX 18s linear infinite, geoDrift1 18s ease-in-out infinite;
 }
 
+/* ── Volumes 3D (cube, sphère, cône) ── */
+.geo3d { position: absolute; opacity: .09; will-change: transform; backface-visibility: visible; }
+.geo-cube { --s: 30px; width: calc(var(--s) * 2); height: calc(var(--s) * 2); transform-style: preserve-3d; }
+.geo-cube i {
+  position: absolute; inset: 0;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.geo-cube i:nth-child(1) { transform: translateZ(var(--s)); }
+.geo-cube i:nth-child(2) { transform: rotateY(180deg) translateZ(var(--s)); }
+.geo-cube i:nth-child(3) { transform: rotateY(90deg) translateZ(var(--s)); }
+.geo-cube i:nth-child(4) { transform: rotateY(-90deg) translateZ(var(--s)); }
+.geo-cube i:nth-child(5) { transform: rotateX(90deg) translateZ(var(--s)); }
+.geo-cube i:nth-child(6) { transform: rotateX(-90deg) translateZ(var(--s)); }
+.c1 { --s: 34px; left: 58%; top: 50%; animation: cubeSpinA 26s linear infinite; }
+.c2 { --s: 22px; left: 8%; top: 68%; animation: cubeSpinB 34s linear infinite reverse; }
+.geo-sphere {
+  border-radius: 50%;
+  background: radial-gradient(closest-side at 34% 30%, #8cebd8, #35b49c 44%, #1c6b5b 70%, #0d4438 100%);
+  box-shadow: inset -8px -10px 20px rgba(0,0,0,.45), 0 3px 14px rgba(0,0,0,.35);
+}
+.s1 { width: 72px; height: 72px; left: 30%; top: 10%; animation: sphereBob 7.5s ease-in-out infinite; }
+.s2 { width: 44px; height: 44px; right: 14%; top: 58%; animation: sphereBob 10s ease-in-out 1.2s infinite; }
+.geo-cone {
+  clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
+  background: linear-gradient(90deg, #0d4438, #35b49c 55%, #0b4035);
+}
+.k1 { width: 88px; height: 110px; right: 27%; bottom: 6%; animation: coneSpin 9s ease-in-out infinite; }
+
+@keyframes cubeSpinA { from { transform: rotateX(-10deg) rotateY(0deg); } to { transform: rotateX(350deg) rotateY(360deg); } }
+@keyframes cubeSpinB { from { transform: rotateY(0deg) rotateZ(-8deg); } to { transform: rotateY(360deg) rotateZ(352deg); } }
+@keyframes sphereBob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-24px); } }
+@keyframes coneSpin { 0%, 100% { transform: rotateX(12deg) rotateY(-8deg); } 50% { transform: rotateX(-10deg) rotateY(10deg); } }
+
 @keyframes geoSpinX { from { transform: rotateX(0) rotateZ(15deg); } to { transform: rotateX(360deg) rotateZ(15deg); } }
 @keyframes geoSpinY { from { transform: rotateY(0) rotateX(10deg); } to { transform: rotateY(360deg) rotateX(10deg); } }
 @keyframes geoSpinZ { from { transform: rotateZ(0) rotateY(8deg); } to { transform: rotateZ(360deg) rotateY(8deg); } }
@@ -100,7 +134,7 @@ body {
 @keyframes geoDrift3 { 0%,100% { translate: 0 0; } 50% { translate: 16px 22px; } }
 
 @media (prefers-reduced-motion: reduce) {
-  .g { animation: none !important; }
+  .g, .geo3d { animation: none !important; }
 }
 
 .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }

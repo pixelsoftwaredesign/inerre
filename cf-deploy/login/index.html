@@ -37,7 +37,19 @@
   @keyframes gD1 { 0%,100% { translate: 0 0; } 50% { translate: 20px -18px; } }
   @keyframes gD2 { 0%,100% { translate: 0 0; } 50% { translate: -16px 14px; } }
   @keyframes gD3 { 0%,100% { translate: 0 0; } 33% { translate: 12px 10px; } 66% { translate: -10px -8px; } }
-  @media (prefers-reduced-motion: reduce) { .g { animation: none !important; } }
+  .geo3d { position: absolute; opacity: .1; will-change: transform; backface-visibility: visible; }
+  .geo3d .c1, .geo3d.c1 { --s: 24px; width: calc(var(--s)*2); height: calc(var(--s)*2); transform-style: preserve-3d; left: 72%; bottom: 16%; animation: gCubeA 26s linear infinite; }
+  .geo3d i { position: absolute; inset: 0; background: color-mix(in srgb, var(--accent) 16%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 60%, transparent); }
+  .geo3d i:nth-child(1) { transform: translateZ(var(--s)); }
+  .geo3d i:nth-child(2) { transform: rotateY(180deg) translateZ(var(--s)); }
+  .geo3d i:nth-child(3) { transform: rotateY(90deg) translateZ(var(--s)); }
+  .geo3d i:nth-child(4) { transform: rotateY(-90deg) translateZ(var(--s)); }
+  .geo3d i:nth-child(5) { transform: rotateX(90deg) translateZ(var(--s)); }
+  .geo3d i:nth-child(6) { transform: rotateX(-90deg) translateZ(var(--s)); }
+  .geo3d.s1 { width: 62px; height: 62px; left: 10%; top: 12%; border-radius: 50%; background: radial-gradient(closest-side at 34% 30%, #8cebd8, #35b49c 44%, #1c6b5b 70%, #0d4438 100%); box-shadow: inset -8px -10px 20px rgba(0,0,0,.45), 0 3px 14px rgba(0,0,0,.35); animation: gSphere 8s ease-in-out infinite; }
+  @keyframes gCubeA { from { transform: rotateX(-10deg) rotateY(0deg); } to { transform: rotateX(350deg) rotateY(360deg); } }
+  @keyframes gSphere { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-20px); } }
+  @media (prefers-reduced-motion: reduce) { .g, .geo3d { animation: none !important; } }
   .login-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
   .login-card {
     width: 100%;
@@ -85,6 +97,8 @@
 <body>
   <div class="geo-bg" aria-hidden="true">
     <i class="g g1"></i><i class="g g2"></i><i class="g g3"></i><i class="g g4"></i>
+    <div class="geo3d geo-cube c1"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <div class="geo3d geo-sphere s1"></div>
   </div>
   <div class="login-wrap">
     <div class="login-card">
