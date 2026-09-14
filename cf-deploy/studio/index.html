@@ -124,10 +124,6 @@
       <div class="mode-strips">
         <!-- Contextual toolbar dispatcher — outils du mode actif, centrés en haut -->
         <div class="context-tools" data-role="toolbar-dispatcher">
-          <div class="ct-indicator">
-            <span class="ct-ind-label">Mode actif</span>
-            <span class="ct-ind-value" id="ctModeLabel">CAD</span>
-          </div>
           <div class="ct-body">
 
             <!-- CAD : architecture, plan, cotation -->
@@ -315,101 +311,32 @@
             <div id="cineTimeline" class="cine-timeline"></div>
           </div>
 
-          <!-- Tool Ribbon -->
-          <div class="tool-ribbon" aria-label="Outils">
-            <div class="ribbon-group">
-              <span>2D</span>
-              <button data-draw-tool="point">Point</button>
-              <button data-draw-tool="line">Ligne</button>
-              <button data-draw-tool="rectangle">Rectangle</button>
-              <button data-draw-tool="circle">Cercle</button>
-              <button data-draw-tool="arc">Arc</button>
-              <button data-draw-tool="profile">Profile</button>
-              <button id="extrude2dBtn">Extrude</button>
-              <button id="revolveBtn">Revolve</button>
-            </div>
-            <div class="ribbon-group">
-              <span>3D</span>
-              <button data-add="box">Cube</button>
-              <button data-add="sphere">Sphere</button>
-              <button data-add="cone">Cone</button>
-              <button data-add="cylinder">Cylindre</button>
-              <button data-add="rock">Roche</button>
-              <button data-add="water">Eau</button>
-              <button data-add="cloth">Tissu</button>
-              <button data-add="gas">Gaz</button>
-              <button data-add="particles">Particules</button>
-            </div>
-            <div class="ribbon-group">
-              <span>Nature</span>
-              <button id="natGrassBtn" title="Disperser de l'herbe sur le terrain">Herbe</button>
-              <button id="natShrubBtn" title="Disperser des arbustes sur le terrain">Arbustes</button>
-              <button id="natRockBtn" title="Disperser des rochers sur le terrain">Rocs</button>
-              <button id="natClearBtn" title="Retirer la végétation">Effacer</button>
-            </div>
-            <div class="ribbon-group">
-              <span>Edit</span>
-              <button data-transform-mode="translate">Move</button>
-              <button data-transform-mode="rotate">Rotate</button>
-              <button data-transform-mode="scale">Scale</button>
-              <button id="scaleUpBtn">Agrandir</button>
-              <button id="connectBtn">Connect</button>
-              <button id="booleanBtn">Boolean</button>
-              <span id="booleanStatus" class="boolean-status hidden"></span>
-              <button id="innerSelectBtn">Inner</button>
-              <button id="deformBtn">Deform</button>
-              <button id="boxSelectBtn" data-sel-mode="rect">Box</button>
-              <button id="arrayBtn">Array</button>
-              <button id="mirrorBtn">Mirror</button>
-              <span class="tg-sep"></span>
-              <button id="dropBtn" title="Déposer les objets sélectionnés au sol">Sol</button>
-              <button id="collisionBtn" title="Activer la collision avec les murs">Cllsn</button>
-              <span class="tg-sep"></span>
-              <button id="clusterBtn" title="Grouper les objets sélectionnés">Cluster</button>
-              <button id="unclusterBtn" title="Dissocier le groupe sélectionné">Dissocier</button>
-              <button id="neighBtn" title="Ajouter les objets voisins (boîte élargie) à la sélection">Voisins</button>
-              <button id="stickBtn" title="Coller l'objet primaire contre son voisin le plus proche">Coller</button>
-              <button id="alignCenterBtn" title="Aligner les centres XZ des objets sélectionnés">Centre</button>
-              <button id="distXBtn" title="Répartir uniformément sur X">Répart X</button>
-              <button id="distZBtn" title="Répartir uniformément sur Z">Répart Z</button>
-              <button id="geoInfoBtn" title="Mesures &amp; math (topologie, surface, volume)">Info</button>
-              <span class="tg-sep"></span>
-              <button id="animBtn" title="Lecture / pause des animations (eau, tissu, particules…)">Anim</button>
-              <button id="swayBtn" title="Animation balancement">Sway</button>
-              <button id="bobBtn" title="Animation flottement">Bob</button>
-              <button id="spinBtn" title="Animation rotation">Spin</button>
-              <button id="animNoneBtn" title="Retirer l'animation">Clr</button>
-              <button id="linkBtn" title="Lier les objets sélectionnés (le dernier est le parent)">Lier</button>
-              <button id="unlinkBtn" title="Délier les objets sélectionnés">Délier</button>
-            </div>
-            <div id="arrayPanel" class="ribbon-panel hidden">
-              <label>Type <select id="arrayType"><option value="linear">Linéaire</option><option value="grid">Grille</option><option value="circle">Cercle</option><option value="curve">Courbe</option></select></label>
-              <label>Count <input id="arrayCount" type="number" min="1" max="100" value="5" /></label>
-              <label id="arrayOffsetLabel"><span id="arrayOffsetText">Offset</span> <input id="arrayOffset" type="number" min="0.1" max="20" step="0.1" value="1" /></label>
-              <span id="arrayCurveOpts" style="display:none">
-                <select id="arrayCurveType"><option value="arc">Arc</option><option value="sine">Sinus</option><option value="spiral">Spirale</option></select>
-                <input id="arrayCurveDepth" type="number" min="0" max="10" step="0.1" value="1" title="Amplitude / rayon de la courbe" />
-              </span>
-              <button id="applyArrayBtn">Appliquer</button>
-            </div>
-            <div id="mirrorPanel" class="ribbon-panel hidden">
-              <span>Mirror:</span>
-              <button data-mirror-axis="x">X</button>
-              <button data-mirror-axis="y">Y</button>
-              <button data-mirror-axis="z">Z</button>
-            </div>
-            <div id="geoInfoPanel" class="ribbon-panel hidden">
-              <span class="measure-title">Mesures &amp; math</span>
-              <div id="geoInfoContent" class="geo-info-content"></div>
-            </div>
-            <div id="measurePanel" class="ribbon-panel hidden">
-              <span class="measure-title">Cotes 3D</span>
-              <span id="measureList" class="measure-list"></span>
-              <button id="clearMeasureBtn">Effacer tout</button>
-            </div>
+          <!-- Floating tool panels (Array / Mirror / Geo Info / Measure) -->
+          <div id="arrayPanel" class="ribbon-panel hidden">
+            <label>Type <select id="arrayType"><option value="linear">Linéaire</option><option value="grid">Grille</option><option value="circle">Cercle</option><option value="curve">Courbe</option></select></label>
+            <label>Count <input id="arrayCount" type="number" min="1" max="100" value="5" /></label>
+            <label id="arrayOffsetLabel"><span id="arrayOffsetText">Offset</span> <input id="arrayOffset" type="number" min="0.1" max="20" step="0.1" value="1" /></label>
+            <span id="arrayCurveOpts" style="display:none">
+              <select id="arrayCurveType"><option value="arc">Arc</option><option value="sine">Sinus</option><option value="spiral">Spirale</option></select>
+              <input id="arrayCurveDepth" type="number" min="0" max="10" step="0.1" value="1" title="Amplitude / rayon de la courbe" />
+            </span>
+            <button id="applyArrayBtn">Appliquer</button>
           </div>
-
-          <!-- Floating HUD -->
+          <div id="mirrorPanel" class="ribbon-panel hidden">
+            <span>Mirror:</span>
+            <button data-mirror-axis="x">X</button>
+            <button data-mirror-axis="y">Y</button>
+            <button data-mirror-axis="z">Z</button>
+          </div>
+          <div id="geoInfoPanel" class="ribbon-panel hidden">
+            <span class="measure-title">Mesures &amp; math</span>
+            <div id="geoInfoContent" class="geo-info-content"></div>
+          </div>
+          <div id="measurePanel" class="ribbon-panel hidden">
+            <span class="measure-title">Cotes 3D</span>
+            <span id="measureList" class="measure-list"></span>
+            <button id="clearMeasureBtn">Effacer tout</button>
+          </div>
           <div class="floating-hud">
             <button id="deleteBtn" title="Supprimer l'objet sélectionné">Delete</button>
             <button id="duplicateBtn" title="Dupliquer l'objet sélectionné">Duplicate</button>
@@ -598,6 +525,15 @@
                   <div id="customLib" class="tool-grid custom-lib"></div>
                 </div>
               </section>
+              <section data-modes="CAD MESH_EDIT">
+                <h2>Nature</h2>
+                <div class="tool-grid">
+                  <button id="natGrassBtn" title="Disperser de l'herbe sur le terrain">Herbe</button>
+                  <button id="natShrubBtn" title="Disperser des arbustes sur le terrain">Arbustes</button>
+                  <button id="natRockBtn" title="Disperser des rochers sur le terrain">Rocs</button>
+                  <button id="natClearBtn" title="Retirer la végétation">Effacer</button>
+                </div>
+              </section>
               <section data-modes="PANORAMA_360">
                 <h2>Image 360°</h2>
                 <button id="importPanoramaBtn" class="wide">Importer panorama</button>
@@ -661,6 +597,7 @@
                   <button id="separateBtn">Inner</button>
                   <button id="deformBtn">Deform</button>
                 </div>
+                <span id="booleanStatus" class="boolean-status hidden"></span>
               </section>
               <section data-modes="MESH_EDIT CAD">
                 <h2>Mesh Editor</h2>
@@ -680,6 +617,33 @@
                 <div class="tool-grid">
                   <button id="arrayBtn">Array</button>
                   <button id="mirrorBtn">Mirror</button>
+                </div>
+              </section>
+              <section>
+                <h2>Assemblage</h2>
+                <div class="tool-grid">
+                  <button id="dropBtn" title="Déposer les objets sélectionnés au sol">Sol</button>
+                  <button id="collisionBtn" title="Activer la collision avec les murs">Cllsn</button>
+                  <button id="clusterBtn" title="Grouper les objets sélectionnés">Cluster</button>
+                  <button id="unclusterBtn" title="Dissocier le groupe sélectionné">Dissocier</button>
+                  <button id="neighBtn" title="Ajouter les objets voisins (boîte élargie) à la sélection">Voisins</button>
+                  <button id="stickBtn" title="Coller l'objet primaire contre son voisin le plus proche">Coller</button>
+                  <button id="alignCenterBtn" title="Aligner les centres XZ des objets sélectionnés">Centre</button>
+                  <button id="distXBtn" title="Répartir uniformément sur X">Répart X</button>
+                  <button id="distZBtn" title="Répartir uniformément sur Z">Répart Z</button>
+                  <button id="geoInfoBtn" title="Mesures &amp; math (topologie, surface, volume)">Info</button>
+                </div>
+              </section>
+              <section>
+                <h2>Animation</h2>
+                <div class="tool-grid">
+                  <button id="animBtn" title="Lecture / pause des animations (eau, tissu, particules…)">Anim</button>
+                  <button id="swayBtn" title="Animation balancement">Sway</button>
+                  <button id="bobBtn" title="Animation flottement">Bob</button>
+                  <button id="spinBtn" title="Animation rotation">Spin</button>
+                  <button id="animNoneBtn" title="Retirer l'animation">Clr</button>
+                  <button id="linkBtn" title="Lier les objets sélectionnés (le dernier est le parent)">Lier</button>
+                  <button id="unlinkBtn" title="Délier les objets sélectionnés">Délier</button>
                 </div>
               </section>
             </div>
