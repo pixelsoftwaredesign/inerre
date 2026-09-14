@@ -46,14 +46,25 @@ a:hover { color: #4fd3ba; text-decoration: underline; }
 .brand-mark {
   display: grid;
   place-items: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 7px;
-  background: linear-gradient(135deg, #3cc8ae, #1f8a76);
-  color: #07100e;
-  font-weight: 800;
-  font-size: 16px;
-  box-shadow: 0 1px 10px color-mix(in srgb, var(--accent) 45%, transparent);
+  width: 34px;
+  height: 34px;
+}
+.brand-geo { display: block; }
+.brand-geo-ring polygon,
+.brand-geo-core polygon { stroke: var(--accent); stroke-width: 1.7; stroke-linejoin: round; }
+.brand-geo-core polygon { fill: var(--accent); }
+.brand-geo-dot { fill: var(--accent-2); }
+.brand-geo-ring,
+.brand-geo-core,
+.brand-geo-dot { transform-box: fill-box; transform-origin: center; }
+.brand-geo-ring { animation: brandGeoSpin 12s linear infinite; }
+.brand-geo-core { animation: brandGeoSpinRev 18s ease-in-out infinite; }
+.brand-geo-dot { animation: brandGeoPulse 2.8s ease-in-out infinite; }
+@keyframes brandGeoSpin { to { transform: rotate(360deg); } }
+@keyframes brandGeoSpinRev { to { transform: rotate(-360deg); } }
+@keyframes brandGeoPulse { 0%, 100% { opacity: .45; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .brand-geo-ring, .brand-geo-core, .brand-geo-dot { animation: none; }
 }
 .brand-name { font-size: 15px; letter-spacing: .2px; }
 .brand-name strong { color: var(--accent); }

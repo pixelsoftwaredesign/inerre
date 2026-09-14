@@ -1,6 +1,6 @@
-const MAIN_SITE = "https://pixelsoftwaredesign.onrender.com";
+import { getValidatedUser, extractToken } from "./api/_session.js";
 
-const PUBLIC_PATHS = ["/", "/robots.txt", "/sitemap.xml", "/llms.txt", "/llms-full.txt", "/login", "/login/", "/api/login", "/api/logout", "/api/health"];
+const PUBLIC_PATHS = ["/", "/robots.txt", "/sitemap.xml", "/llms.txt", "/llms-full.txt", "/login", "/login/", "/api/login", "/api/logout", "/api/health", "/api/session"];
 
 const AUTHCSS_PATHS = ["/favicon.ico", "/favicon.svg", "/logo.svg", "/styles.css"];
 
@@ -10,22 +10,6 @@ function isAssetPath(pathname) {
   const clean = pathname.split("?")[0];
   const ext = clean.includes(".") ? clean.split(".").pop().toLowerCase() : "";
   return ext !== "" && ASSET_EXTS.includes(ext);
-}
-
-async function validateSession(sessionId) {
-  if (!sessionId) return null;
-  try {
-    const resp = await fetch(`${MAIN_SITE}/api/me/`, {
-      headers: { Cookie: `sessionid=${sessionId}` },
-      redirect: "follow",
-    });
-    if (!resp.ok) return null;
-    const data = await resp.json();
-    if (data && data.status === "success" && data.user) return data.user;
-  } catch (e) {
-    console.error("validateSession:", e);
-  }
-  return null;
 }
 
 function isPublic(pathname) {
@@ -44,30 +28,16 @@ export async function onRequest({ request, next, env }) {
     return next();
   }
 
-  const cookies = request.headers.get("Cookie") || "";
-  const match = cookies.match(/(?:^|;\s*)iner_session=([^;]+)/);
-  if (match) {
-    const stored = await env.iner_sessions.get(match[1]).catch(() => null);
-    if (stored) {
-      let session = null;
-      try {
-        session = JSON.parse(stored);
-      } catch (e) {
-        session = null;
-      }
-      if (session && session.sessionid) {
-        const user = await validateSession(session.sessionid);
-        if (user) {
-          const patched = new Request(request, {
-            headers: new Headers(request.headers),
-          });
-          const response = await next(patched);
-          const res = new Response(response.body, response);
-          res.headers.set("X-Iner-User", JSON.stringify({ username: user.username || "", email: user.email || "" }));
-          return res;
-        }
-      }
-    }
+  const token = extractToken(request);
+  const user = token ? await getValidatedUser(env, token) : null;
+  if (user) {
+    const patched = new Request(request, {
+      headers: new Headers(request.headers),
+    });
+    const response = await next(patched);
+    const res = new Response(response.body, response);
+    res.headers.set("X-Iner-User", JSON.stringify({ username: user.username || "", email: user.email || "" }));
+    return res;
   }
 
   if (request.method === "GET" && !pathname.startsWith("/api/")) {

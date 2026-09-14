@@ -3657,6 +3657,11 @@ const primary = primaryId();
       window.location.href = "/login";
     });
   }
+  setInterval(async () => {
+    try {
+      if (document.visibilityState === "visible") await fetch("/api/session");
+    } catch (e) {}
+  }, 5 * 60 * 1000);
   document.querySelector("#aiModalClose").addEventListener("click", closeAIGenerator);
   document.querySelector("#aiCancelBtn").addEventListener("click", closeAIGenerator);
   document.querySelector("#aiGenerateBtn").addEventListener("click", generateFromPrompt);

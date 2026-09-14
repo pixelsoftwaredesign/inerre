@@ -6,20 +6,31 @@
     </linearGradient>
   </defs>
 
-  <!-- isometric room mark -->
+  <!-- isometric room mark (animated geometric vector) -->
   <g transform="translate(80 92)">
-    <polygon points="0,0 -36,18 0,36 36,18" fill="#35b49c22"/>
-    <polygon points="0,0 -36,18 0,36 36,18" fill="none" stroke="#35b49c" stroke-width="3.5" stroke-linejoin="round"/>
-    <polygon points="0,0 36,18 36,-20 0,-38" fill="#35b49c14"/>
-    <polygon points="0,0 36,18 36,-20 0,-38" fill="none" stroke="#35b49c" stroke-width="3.5" stroke-linejoin="round"/>
-    <polygon points="0,0 -36,18 -36,-20 0,-38" fill="#e7c46a14"/>
-    <polygon points="0,0 -36,18 -36,-20 0,-38" fill="none" stroke="#e7c46a" stroke-width="3.5" stroke-linejoin="round"/>
-    <line x1="0" y1="0" x2="0" y2="-38" stroke="#edece7" stroke-width="4" stroke-linecap="round"/>
-    <line x1="-36" y1="18" x2="0" y2="36" stroke="#e7c46a" stroke-width="3.5" stroke-linecap="round"/>
-    <line x1="0" y1="36" x2="36" y2="18" stroke="#35b49c" stroke-width="3.5" stroke-linecap="round"/>
+    <g>
+      <animateTransform attributeName="transform" type="rotate" values="-6 0 0; 6 0 0; -6 0 0" dur="6s" repeatCount="indefinite" calcMode="spline" keySplines="0.45 0 0.55 1; 0.45 0 0.55 1"/>
+      <polygon points="0,0 -36,18 0,36 36,18" fill="#35b49c22"/>
+      <polygon points="0,0 -36,18 0,36 36,18" fill="none" stroke="#35b49c" stroke-width="3.5" stroke-linejoin="round"/>
+      <polygon points="0,0 36,18 36,-20 0,-38" fill="#35b49c14"/>
+      <polygon points="0,0 36,18 36,-20 0,-38" fill="none" stroke="#35b49c" stroke-width="3.5" stroke-linejoin="round">
+        <animate attributeName="opacity" values=".55;1;.55" dur="2.8s" repeatCount="indefinite"/>
+      </polygon>
+      <polygon points="0,0 -36,18 -36,-20 0,-38" fill="#e7c46a14"/>
+      <polygon points="0,0 -36,18 -36,-20 0,-38" fill="none" stroke="#e7c46a" stroke-width="3.5" stroke-linejoin="round">
+        <animate attributeName="opacity" values="1;.55;1" dur="2.8s" repeatCount="indefinite"/>
+      </polygon>
+      <line x1="0" y1="0" x2="0" y2="-38" stroke="#edece7" stroke-width="4" stroke-linecap="round">
+        <animate attributeName="opacity" values=".5;1;.5" dur="2.8s" repeatCount="indefinite"/>
+      </line>
+      <line x1="-36" y1="18" x2="0" y2="36" stroke="#e7c46a" stroke-width="3.5" stroke-linecap="round"/>
+      <line x1="0" y1="36" x2="36" y2="18" stroke="#35b49c" stroke-width="3.5" stroke-linecap="round"/>
+    </g>
   </g>
 
-  <text x="132" y="72" font-family="Arial, Helvetica, sans-serif" font-size="40" font-weight="700" fill="#edece7" letter-spacing="-1">Inerre</text>
+  <text x="132" y="72" font-family="Arial, Helvetica, sans-serif" font-size="40" font-weight="700" fill="#edece7" letter-spacing="-1">Iner</text>
   <text x="132" y="108" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="500" fill="#888d92" letter-spacing="4">STUDIO</text>
-  <rect x="132" y="120" width="56" height="3" rx="1.5" fill="url(#i2)"/>
+  <rect x="132" y="120" width="56" height="3" rx="1.5" fill="url(#i2)">
+    <animate attributeName="opacity" values=".45;1;.45" dur="3.2s" repeatCount="indefinite"/>
+  </rect>
 </svg>
