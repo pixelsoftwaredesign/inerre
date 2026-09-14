@@ -5,7 +5,6 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Inerre Studio</title>
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
@@ -15,7 +14,8 @@
       <header class="main-toolbar">
         <div class="toolbar-left">
           <div class="brand">
-            <img class="brand-logo" src="/logo.svg" alt="Inerre Studio" title="Inerre Studio" />
+            <span class="brand-mark">I</span>
+            <strong>Inner Studio</strong>
             <span class="brand-copyright">PixelSoftwareDesign @2026</span>
           </div>
           <input id="projectNameInput" class="project-name-input" value="Projet sans titre" />
@@ -73,8 +73,19 @@
             <button id="focusBtn" title="Centrer sur l'objet">Focus</button>
             <button id="quadViewBtn" title="Quad View (Alt+W)">Quad</button>
             <button id="screenshotBtn" title="Capture d'écran HD">📷</button>
+            <button id="measureBtn" title="Mesurer des distances (2 clics)">📏</button>
             <button id="aiGenBtn" class="accent-btn" title="Générer avec IA">AI 3D</button>
-            <button id="logoutBtn" title="Se déconnecter">Logout</button>
+          </div>
+          <span class="tg-sep"></span>
+
+          <!-- Cinematic -->
+          <div class="tg-group">
+            <button id="cinePanelBtn" title="Afficher/masquer la timeline">📹</button>
+            <button id="cineShotBtn" title="Enregistrer le plan de caméra actuel">Clé</button>
+            <button id="cinePrevBtn" title="Aller au plan précédent">◀</button>
+            <button id="cineNextBtn" title="Aller au plan suivant">▶</button>
+            <button id="cinePlayBtn" title="Lire la cinématique">Lire</button>
+            <button id="cineExportBtn" title="Exporter la séquence en vidéo WebM">Export</button>
           </div>
         </div>
 
@@ -161,6 +172,19 @@
           <div id="panoramaViewport" class="viewport panorama hidden"></div>
           <div id="boxOverlay" class="box-overlay hidden"></div>
 
+          <!-- Cinematic Timeline -->
+          <div id="cinePanel" class="cine-panel hidden">
+            <div class="cine-toolbar">
+              <span id="cineTime">0.0s / 8.0s</span>
+              <button id="cineObjKeyBtn" title="Ajouter une clé d'animation pour l'objet sélectionné">Clé Obj</button>
+              <button id="cineLoopBtn" title="Lecture en boucle">⏱</button>
+              <button id="cineDelKeyBtn" title="Supprimer la clé sous la tête de lecture">Suppr</button>
+              <button id="cineSeekBtn" title="Revenir au début">⏮</button>
+              <button id="cinePanelSaveBtn" title="Récapitulatif de la timeline">💾</button>
+            </div>
+            <div id="cineTimeline" class="cine-timeline"></div>
+          </div>
+
           <!-- Tool Ribbon -->
           <div class="tool-ribbon" aria-label="Outils">
             <div class="ribbon-group">
@@ -180,6 +204,18 @@
               <button data-add="sphere">Sphere</button>
               <button data-add="cone">Cone</button>
               <button data-add="cylinder">Cylindre</button>
+              <button data-add="rock">Roche</button>
+              <button data-add="water">Eau</button>
+              <button data-add="cloth">Tissu</button>
+              <button data-add="gas">Gaz</button>
+              <button data-add="particles">Particules</button>
+            </div>
+            <div class="ribbon-group">
+              <span>Nature</span>
+              <button id="natGrassBtn" title="Disperser de l'herbe sur le terrain">Herbe</button>
+              <button id="natShrubBtn" title="Disperser des arbustes sur le terrain">Arbustes</button>
+              <button id="natRockBtn" title="Disperser des rochers sur le terrain">Rocs</button>
+              <button id="natClearBtn" title="Retirer la végétation">Effacer</button>
             </div>
             <div class="ribbon-group">
               <span>Edit</span>
@@ -195,11 +231,35 @@
               <button id="boxSelectBtn" data-sel-mode="rect">Box</button>
               <button id="arrayBtn">Array</button>
               <button id="mirrorBtn">Mirror</button>
+              <span class="tg-sep"></span>
+              <button id="dropBtn" title="Déposer les objets sélectionnés au sol">Sol</button>
+              <button id="collisionBtn" title="Activer la collision avec les murs">Cllsn</button>
+              <span class="tg-sep"></span>
+              <button id="clusterBtn" title="Grouper les objets sélectionnés">Cluster</button>
+              <button id="unclusterBtn" title="Dissocier le groupe sélectionné">Dissocier</button>
+              <button id="neighBtn" title="Ajouter les objets voisins (boîte élargie) à la sélection">Voisins</button>
+              <button id="stickBtn" title="Coller l'objet primaire contre son voisin le plus proche">Coller</button>
+              <button id="alignCenterBtn" title="Aligner les centres XZ des objets sélectionnés">Centre</button>
+              <button id="distXBtn" title="Répartir uniformément sur X">Répart X</button>
+              <button id="distZBtn" title="Répartir uniformément sur Z">Répart Z</button>
+              <button id="geoInfoBtn" title="Mesures &amp; math (topologie, surface, volume)">Info</button>
+              <span class="tg-sep"></span>
+              <button id="animBtn" title="Lecture / pause des animations (eau, tissu, particules…)">Anim</button>
+              <button id="swayBtn" title="Animation balancement">Sway</button>
+              <button id="bobBtn" title="Animation flottement">Bob</button>
+              <button id="spinBtn" title="Animation rotation">Spin</button>
+              <button id="animNoneBtn" title="Retirer l'animation">Clr</button>
+              <button id="linkBtn" title="Lier les objets sélectionnés (le dernier est le parent)">Lier</button>
+              <button id="unlinkBtn" title="Délier les objets sélectionnés">Délier</button>
             </div>
             <div id="arrayPanel" class="ribbon-panel hidden">
-              <label>Type <select id="arrayType"><option value="linear">Linéaire</option><option value="grid">Grille</option><option value="circle">Cercle</option></select></label>
+              <label>Type <select id="arrayType"><option value="linear">Linéaire</option><option value="grid">Grille</option><option value="circle">Cercle</option><option value="curve">Courbe</option></select></label>
               <label>Count <input id="arrayCount" type="number" min="1" max="100" value="5" /></label>
               <label id="arrayOffsetLabel"><span id="arrayOffsetText">Offset</span> <input id="arrayOffset" type="number" min="0.1" max="20" step="0.1" value="1" /></label>
+              <span id="arrayCurveOpts" style="display:none">
+                <select id="arrayCurveType"><option value="arc">Arc</option><option value="sine">Sinus</option><option value="spiral">Spirale</option></select>
+                <input id="arrayCurveDepth" type="number" min="0" max="10" step="0.1" value="1" title="Amplitude / rayon de la courbe" />
+              </span>
               <button id="applyArrayBtn">Appliquer</button>
             </div>
             <div id="mirrorPanel" class="ribbon-panel hidden">
@@ -207,6 +267,15 @@
               <button data-mirror-axis="x">X</button>
               <button data-mirror-axis="y">Y</button>
               <button data-mirror-axis="z">Z</button>
+            </div>
+            <div id="geoInfoPanel" class="ribbon-panel hidden">
+              <span class="measure-title">Mesures &amp; math</span>
+              <div id="geoInfoContent" class="geo-info-content"></div>
+            </div>
+            <div id="measurePanel" class="ribbon-panel hidden">
+              <span class="measure-title">Cotes 3D</span>
+              <span id="measureList" class="measure-list"></span>
+              <button id="clearMeasureBtn">Effacer tout</button>
             </div>
           </div>
 
@@ -266,6 +335,11 @@
                   <button data-add="sphere">Sphère</button>
                   <button data-add="cone">Cône</button>
                   <button data-add="cylinder">Cylindre</button>
+                  <button data-add="rock">Roche</button>
+                  <button data-add="water">Eau</button>
+                  <button data-add="cloth">Tissu</button>
+                  <button data-add="gas">Gaz</button>
+                  <button data-add="particles">Particules</button>
                 </div>
               </section>
               <section>
@@ -647,11 +721,45 @@
     <script type="importmap">
       {
         "imports": {
-          "three": "https://unpkg.com/three@0.165.0/build/three.module.js",
-          "three/addons/": "https://unpkg.com/three@0.165.0/examples/jsm/",
-          "three-csg-ts": "https://esm.sh/three-csg-ts@3.2.0?external=three"
+          "three": "./three/three.module.js",
+          "three/addons/": "./three/addons/",
+          "three-csg-ts": "./three/three-csg-ts.esm.js"
         }
       }
+    </script>
+    <style id="inerre-dump-styles">
+      #inerreDump{position:fixed;inset:0;z-index:999999;display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:#0c0f12;color:#e8e6e1;font:14px/1.5 system-ui,Segoe UI,Roboto,sans-serif;text-align:center;padding:24px}
+      #inerreDump.show{display:flex}
+      #inerreDump h2{margin:0;font-size:17px;color:#ffd479}
+      #inerreDump pre{max-width:720px;white-space:pre-wrap;word-break:break-word;color:#9fb3c8;font-size:12px;margin:0}
+      #inerreDump button{background:#2f7fb2;color:#fff;border:none;border-radius:6px;padding:10px 18px;font-size:14px;cursor:pointer}
+    </style>
+    <div id="inerreDump" role="alert">
+      <h2>Inerre ne peut pas démarrer</h2>
+      <pre id="inerreDumpMsg"></pre>
+      <button type="button" onclick="location.reload()">Recharger la page</button>
+    </div>
+    <script>
+      (function () {
+        var el = document.getElementById("inerreDump");
+        var msg = document.getElementById("inerreDumpMsg");
+        function show(m) { if (!el || !msg) return; msg.textContent = m || ""; el.classList.add("show"); }
+        window.addEventListener("error", function (e) {
+          if (window.__INERRE_BOOTED) return;
+          show("Erreur JS pendant le démarrage :\n" + (e.message || e.error || "inconnue") + "\n\n" + (e.filename || "") + " ligne " + (e.lineno || "?"));
+        }, true);
+        window.addEventListener("unhandledrejection", function (e) {
+          if (window.__INERRE_BOOTED) return;
+          show("Promesse rejetée pendant le démarrage :\n" + String((e.reason && e.reason.message) || e.reason));
+        });
+        window.addEventListener("load", function () {
+          setTimeout(function () {
+            if (!window.__INERRE_BOOTED && !el.classList.contains("show")) {
+              show("Les fichiers principaux n'ont pas pu être chargés (Three.js / app.js).\nVérifiez votre connexion, puis rechargez. Si cela persiste, contactez le support avec ce message.");
+            }
+          }, 8000);
+        });
+      })();
     </script>
     <script type="module" src="./app.js"></script>
   </body>

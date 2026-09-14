@@ -859,6 +859,7 @@ const state = {
   },
   objects: [],
   selectedIds: [],
+  clusters: [],
   draw: {
     tool: null,
     active: false,
@@ -904,6 +905,10 @@ const state = {
   activeView: "perspective",
   aiLastBlueprint: null,
   aiAllVariants: null,
+  measure: { active: false },
+  physics: { collision: false },
+  anim: { playing: true, t: 0 },
+  cine: { shots: [], objKeys: [], index: -1, playing: false, t: 0, rec: null, loop: false, duration: null },
 };
 
 const materialLibrary = {
@@ -921,6 +926,9 @@ const materialLibrary = {
   ceramic: { label: "Ceramic", color: "#f2eee4", roughness: 0.34 },
   darkScreen: { label: "Black glass", color: "#07090b", roughness: 0.18, metalness: 0.2 },
   lightWarm: { label: "Light warm", color: "#ffe7a3", roughness: 0.12 },
+  water: { label: "Eau fluide", color: "#2f7fb2", roughness: 0.08, metalness: 0.42, transparent: true, opacity: 0.82, side: THREE.DoubleSide },
+  smokeGas: { label: "Gaz / fumée", color: "#9aa4ac", roughness: 0.55, transparent: true, opacity: 0.2, blend: "additive", side: THREE.DoubleSide },
+  rock: { label: "Roche", color: "#6a6a6a", roughness: 0.86, metalness: 0.08 },
 };
 
 const stylePresets = {
@@ -1041,7 +1049,20 @@ scene.background = new THREE.Color(0x111315);
 const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 1000);
 camera.position.set(6, 5, 7);
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+function showBootError(message) {
+  const el = document.getElementById("inerreDump");
+  const msg = document.getElementById("inerreDumpMsg");
+  if (!el || !msg) return;
+  msg.textContent = message || "";
+  el.classList.add("show");
+}
+let renderer;
+try {
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+} catch (e) {
+  showBootError("WebGL indisponible sur votre navigateur ou appareil.\n\n" + (e && e.message ? e.message : String(e)) + "\n\nAstuce : activez l'accélération matérielle (paramètres Chrome/Safari) et rechargez. N'hésitez pas à copier ce texte pour le support.");
+  throw e;
+}
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -1057,7 +1078,40 @@ transformControls.addEventListener("dragging-changed", (event) => {
 });
 transformControls.addEventListener("objectChange", () => {
   const object = transformControls.object;
+  if (object?.userData.subMarker) {
+    applySubObjectDrag();
+    return;
+  }
+  if (object?.userData.clusterId) {
+    const cluster = findCluster(object.userData.clusterId);
+    if (cluster) {
+      const last = object.userData._lastPos || object.position.clone();
+      const delta = {
+        x: object.position.x - last.x,
+        y: object.position.y - last.y,
+        z: object.position.z - last.z,
+      };
+      object.userData._lastPos = object.position.clone();
+      if (delta.x || delta.y || delta.z) {
+        syncClusterMembers(cluster, delta);
+        renderGeoInfo();
+        updateStatusBar();
+      }
+    }
+    return;
+  }
   if (!object?.userData.id) return;
+  if (state.physics.collision) {
+    for (let i = 0; i < 4; i++) collisionClamp(object);
+  }
+  const last = object.userData._lastPos || object.position.clone();
+  const delta = {
+    x: object.position.x - last.x,
+    y: object.position.y - last.y,
+    z: object.position.z - last.z,
+  };
+  object.userData._lastPos = object.position.clone();
+  if (delta.x || delta.y || delta.z) propagateLinked(object.userData.id, delta);
   syncObjectFromMesh(object);
   renderInspector();
 });
@@ -1090,6 +1144,16 @@ let planImage = null;
 let draftSegment = null;
 let isDrawingPlan = false;
 
+let measureGroup = null;
+let measurePoints = [];
+let measureActive = false;
+const MEASURE_LIST = [];
+
+let subHelperGroup = null;
+let subProxy = null;
+let subData = null;
+let subProxyStart = null;
+
 initLighting();
 initQuadView();
 buildRoom();
@@ -1101,6 +1165,7 @@ resize();
 animate();
 addDefaultFurniture();
 updatePipeline();
+window.__INERRE_BOOTED = true;
 
 function addDefaultFurniture() {
   addObject("sofa");
@@ -1579,6 +1644,7 @@ function toggleArray() {
   panel.classList.toggle("hidden");
   if (!panel.classList.contains("hidden")) {
     document.querySelector("#arrayType").value = "linear";
+    document.querySelector("#arrayCurveOpts").style.display = "none";
     document.querySelector("#arrayOffsetLabel").style.display = "";
     updateArrayOffsetLabel();
   }
@@ -1589,7 +1655,10 @@ function updateArrayOffsetLabel() {
   const text = document.querySelector("#arrayOffsetText");
   if (type === "circle") text.textContent = "Radius";
   else if (type === "grid") text.textContent = "Espacement";
+  else if (type === "curve") text.textContent = "Pas / Rayon";
   else text.textContent = "Offset";
+  const curveOpts = document.querySelector("#arrayCurveOpts");
+  if (curveOpts) curveOpts.style.display = type === "curve" ? "" : "none";
 }
 
 function applyArray() {
@@ -1620,6 +1689,23 @@ function applyArray() {
         const angle = (2 * Math.PI / count) * i;
         dx = offset * Math.cos(angle);
         dz = offset * Math.sin(angle);
+      } else if (type === "curve") {
+        const curve = document.querySelector("#arrayCurveType").value;
+        const depth = parseFloat(document.querySelector("#arrayCurveDepth").value) || 1;
+        const turns = 1.5;
+        if (curve === "arc") {
+          const theta = ((Math.PI / 2) / count) * i;
+          dx = offset * (1 - Math.cos(theta)) * Math.sign(Math.cos(theta));
+          dz = offset * Math.sin(theta);
+        } else if (curve === "sine") {
+          dx = offset * i;
+          dz = depth * Math.sin((2 * Math.PI * 2 / count) * i) * Math.min(1, i / Math.max(1, count / 2));
+        } else {
+          const theta = ((2 * Math.PI * turns) / count) * i;
+          dx = offset * i * Math.cos(theta);
+          dz = (offset * i) * Math.sin(theta);
+        }
+        dy = 0;
       }
       newSpec.position.x += dx;
       newSpec.position.y += dy;
@@ -1665,14 +1751,1135 @@ function mirrorSelected(axis) {
   document.querySelector("#mirrorPanel").classList.add("hidden");
 }
 
+/* ---- Cluster / Group handling ---- */
+function isClusterId(id) {
+  return state.clusters.some((c) => c.id === id);
+}
+
+function findCluster(id) {
+  return state.clusters.find((c) => c.id === id);
+}
+
+function findClusterAnchor(clusterId) {
+  return objectGroup.children.find((o) => o.userData.clusterId === clusterId);
+}
+
+function clusterSelected() {
+  const members = state.selectedIds.filter((id) => !isClusterId(id) && Boolean(findSpec(id)));
+  if (members.length < 2) {
+    setStatusInfo("Sélectionne au moins 2 objets pour créer un cluster");
+    return;
+  }
+  pushUndo();
+  const cluster = { id: crypto.randomUUID(), name: `Groupe ${state.clusters.length + 1}`, members };
+  state.clusters.forEach((c) => {
+    if (c.members.some((m) => members.includes(m))) {
+      const anchor = findClusterAnchor(c.id);
+      if (anchor) objectGroup.remove(anchor);
+      c.members = c.members.filter((m) => !members.includes(m));
+    }
+  });
+  state.clusters = state.clusters.filter((c) => c.members.length > 0);
+  state.clusters.forEach((c) => { if (!findClusterAnchor(c.id)) createClusterAnchor(c); });
+  state.clusters.push(cluster);
+  createClusterAnchor(cluster);
+  state.selectedIds = [cluster.id];
+  renderObjectList();
+  renderInspector();
+}
+
+function createClusterAnchor(cluster) {
+  const anchor = new THREE.Object3D();
+  anchor.name = cluster.name;
+  anchor.userData.clusterId = cluster.id;
+  objectGroup.add(anchor);
+  positionClusterAnchor(anchor, cluster);
+  return anchor;
+}
+
+function positionClusterAnchor(anchor, cluster) {
+  let cx = 0, cy = 0, cz = 0, n = 0;
+  cluster.members.forEach((id) => {
+    const mesh = findMesh(id);
+    if (!mesh) return;
+    const center = new THREE.Box3().setFromObject(mesh, true).getCenter(new THREE.Vector3());
+    cx += center.x; cy += center.y; cz += center.z; n++;
+  });
+  if (n) anchor.position.set(cx / n, cy / n, cz / n);
+  else anchor.position.set(0, 0, 0);
+  anchor.userData._lastPos = anchor.position.clone();
+  anchor.updateMatrixWorld(true);
+}
+
+function syncClusterMembers(cluster, delta) {
+  cluster.members.forEach((id) => {
+    const spec = findSpec(id);
+    const mesh = findMesh(id);
+    if (!spec || !mesh) return;
+    spec.position.x = round(spec.position.x + delta.x);
+    spec.position.y = round(spec.position.y + delta.y);
+    spec.position.z = round(spec.position.z + delta.z);
+    mesh.position.set(spec.position.x, spec.position.y, spec.position.z);
+    mesh.updateMatrix();
+  });
+}
+
+function unclusterSelected() {
+  if (!state.selectedIds.length) {
+    setStatusInfo("Sélectionne un objet appartenant à un cluster");
+    return;
+  }
+  let changed = false;
+  state.clusters = state.clusters.filter((c) => {
+    const affected = c.members.some((m) => state.selectedIds.includes(m)) || state.selectedIds.includes(c.id);
+    if (affected) {
+      const anchor = findClusterAnchor(c.id);
+      if (anchor) objectGroup.remove(anchor);
+      changed = true;
+      return false;
+    }
+    return true;
+  });
+  if (!changed) { setStatusInfo("Aucun cluster sélectionné"); return; }
+  pushUndo();
+  state.selectedIds = state.selectedIds.filter((id) => !isClusterId(id));
+  if (state.selectedIds.length === 1) {
+    const mesh = findMesh(state.selectedIds[0]);
+    if (mesh) transformControls.attach(mesh);
+  } else {
+    transformControls.detach();
+  }
+  renderObjectList();
+  renderInspector();
+  setStatusInfo("Cluster dissocié");
+}
+
+/* ---- Neighborhood ---- */
+function updateMatrices() {
+  objectGroup.updateMatrixWorld(true);
+}
+
+function getObjectBox(id) {
+  const mesh = findMesh(id);
+  if (!mesh) return null;
+  return new THREE.Box3().setFromObject(mesh, true);
+}
+
+function selectedMeshIds() {
+  return state.selectedIds.filter((id) => !isClusterId(id) && Boolean(findMesh(id)));
+}
+
+function selectNeighbors() {
+  const selIds = selectedMeshIds();
+  if (!selIds.length) { setStatusInfo("Sélectionne d'abord un objet puis Voisins"); return; }
+  updateMatrices();
+  let union = null;
+  selIds.forEach((id) => {
+    const b = getObjectBox(id);
+    if (b) union = union ? union.union(b) : b;
+  });
+  if (!union) return;
+  union.expandByScalar(0.05);
+  const found = [];
+  state.objects.forEach((spec) => {
+    if (selIds.includes(spec.id)) return;
+    const b = getObjectBox(spec.id);
+    if (b && union.intersectsBox(b)) found.push(spec.id);
+  });
+  if (!found.length) { setStatusInfo("Aucun voisin trouvé"); return; }
+  state.selectedIds = [...selIds, ...found];
+  transformControls.detach();
+  const primary = primaryId();
+  const mesh = primary ? findMesh(primary) : null;
+  if (mesh && state.selectedIds.length === 1) transformControls.attach(mesh);
+  renderObjectList();
+  renderInspector();
+  updateStatusBar();
+  setStatusInfo(`${found.length} voisin(s) ajouté(s) à la sélection`);
+}
+
+function stickSelected() {
+  const id = primaryId();
+  if (!id || isClusterId(id) || !findMesh(id)) { setStatusInfo("Sélectionne un objet à coller"); return; }
+  updateMatrices();
+  const A = getObjectBox(id);
+  if (!A) return;
+  let chosen = null;
+  state.objects.forEach((spec) => {
+    if (spec.id === id) return;
+    const B = getObjectBox(spec.id);
+    if (!B) return;
+    ["x", "y", "z"].forEach((axis) => {
+      let sep, dir;
+      if (B.min[axis] >= A.max[axis]) { sep = B.min[axis] - A.max[axis]; dir = 1; }
+      else if (A.min[axis] >= B.max[axis]) { sep = A.min[axis] - B.max[axis]; dir = -1; }
+      else return;
+      if (sep >= 0 && (!chosen || sep < chosen.sep)) chosen = { spec, axis, sep, dir };
+    });
+  });
+  if (!chosen) { setStatusInfo("Objets déjà en contact (ou aucun voisin collable)"); return; }
+  pushUndo();
+  const spec = findSpec(id);
+  const mesh = findMesh(id);
+  if (!spec || !mesh) return;
+  const delta = chosen.dir * chosen.sep;
+  spec.position[chosen.axis] = round(spec.position[chosen.axis] + delta);
+  mesh.position[chosen.axis] = spec.position[chosen.axis];
+  mesh.updateMatrix();
+  renderInspector();
+  updateStatusBar();
+  setStatusInfo(`Collé contre « ${chosen.spec.name} » (axe ${chosen.axis.toUpperCase()})`);
+}
+
+/* ---- Align / Distribute ---- */
+function setObjPosition(id, axis, value) {
+  const spec = findSpec(id);
+  const mesh = findMesh(id);
+  if (!spec || !mesh) return;
+  spec.position[axis] = round(value);
+  mesh.position[axis] = spec.position[axis];
+  mesh.updateMatrix();
+}
+
+function alignCentersXZ() {
+  const items = selectedMeshIds().map((id) => ({ id, box: getObjectBox(id) })).filter((i) => i.box);
+  if (items.length < 2) { setStatusInfo("Sélectionne au moins 2 objets pour aligner"); return; }
+  pushUndo();
+  updateMatrices();
+  const cxs = items.map((i) => i.box.getCenter(new THREE.Vector3()).x);
+  const czs = items.map((i) => i.box.getCenter(new THREE.Vector3()).z);
+  const avgX = cxs.reduce((a, b) => a + b, 0) / items.length;
+  const avgZ = czs.reduce((a, b) => a + b, 0) / items.length;
+  items.forEach((item, idx) => {
+    const center = item.box.getCenter(new THREE.Vector3());
+    setObjPosition(item.id, "x", findSpec(item.id).position.x + (avgX - center.x));
+    setObjPosition(item.id, "z", findSpec(item.id).position.z + (avgZ - center.z));
+  });
+  renderInspector();
+  updateStatusBar();
+  setStatusInfo(`${items.length} objets alignés au centre (XZ)`);
+}
+
+function distributeSelected(axis) {
+  const items = selectedMeshIds().map((id) => ({ id, box: getObjectBox(id) })).filter((i) => i.box);
+  if (items.length < 3) { setStatusInfo("Sélectionne au moins 3 objets pour répartir"); return; }
+  pushUndo();
+  updateMatrices();
+  items.sort((a, b) => {
+    const ca = a.box.getCenter(new THREE.Vector3())[axis];
+    const cb = b.box.getCenter(new THREE.Vector3())[axis];
+    return ca - cb;
+  });
+  const first = items[0].box.getCenter(new THREE.Vector3())[axis];
+  const last = items[items.length - 1].box.getCenter(new THREE.Vector3())[axis];
+  const step = items.length > 1 ? (last - first) / (items.length - 1) : 0;
+  items.forEach((item, idx) => {
+    const center = item.box.getCenter(new THREE.Vector3())[axis];
+    setObjPosition(item.id, axis, findSpec(item.id).position[axis] + (first + step * idx - center));
+  });
+  renderInspector();
+  updateStatusBar();
+  setStatusInfo(`${items.length} objets répartis uniformément (${axis.toUpperCase()})`);
+}
+
+/* ---- Geo / Math ---- */
+function meshStats(id) {
+  const mesh = findMesh(id);
+  if (!mesh || !mesh.geometry) return null;
+  const geo = mesh.geometry;
+  const pos = geo.attributes.position;
+  if (!pos) return null;
+  updateMatrices();
+  const matrix = mesh.matrixWorld;
+  const v = new THREE.Vector3();
+  const wPos = [0, 0, 0].map(() => new THREE.Vector3());
+  const index = geo.index;
+  const read = (i) => { v.set(pos.getX(i), pos.getY(i), pos.getZ(i)); return v; };
+  let faces = 0, surface = 0;
+  let signedVolume = 0;
+  const triCount = index ? index.count / 3 : pos.count / 3;
+  for (let t = 0; t < triCount; t++) {
+    const a = index ? index.getX(t * 3) : t * 3;
+    const b = index ? index.getX(t * 3 + 1) : t * 3 + 1;
+    const c = index ? index.getX(t * 3 + 2) : t * 3 + 2;
+    faces++;
+    wPos[0].copy(read(a)).applyMatrix4(matrix);
+    wPos[1].copy(read(b)).applyMatrix4(matrix);
+    wPos[2].copy(read(c)).applyMatrix4(matrix);
+    const cross = wPos[1].clone().sub(wPos[0]).cross(wPos[2].clone().sub(wPos[0]));
+    surface += cross.length() / 2;
+    signedVolume += wPos[0].dot(wPos[1].clone().cross(wPos[2])) / 6;
+  }
+  const box = new THREE.Box3().setFromObject(mesh, true);
+  const size = box.getSize(new THREE.Vector3());
+  return { verts: pos.count, faces, triangles: triCount, surface, volume: Math.abs(signedVolume), size };
+}
+
+function vertexClusterTopology(id) {
+  const mesh = findMesh(id);
+  if (!mesh || !mesh.geometry || !mesh.geometry.attributes.position) return null;
+  const geo = mesh.geometry;
+  const pos = geo.attributes.position;
+  const indexed = Boolean(geo.index);
+  const idxArr = indexed ? geo.index.array : null;
+  const triCount = indexed ? idxArr.length / 3 : pos.count / 3;
+  const triVert = (t, corner) => (indexed ? idxArr[t * 3 + corner] : t * 3 + corner);
+  const uidOf = new Map();
+  const unique = [];
+  const order = [];
+  for (let i = 0; i < pos.count; i++) {
+    const k = `${pos.getX(i).toFixed(5)},${pos.getY(i).toFixed(5)},${pos.getZ(i).toFixed(5)}`;
+    if (uidOf.has(k)) order.push(uidOf.get(k));
+    else { uidOf.set(k, unique.length); unique.push([pos.getX(i), pos.getY(i), pos.getZ(i)]); order.push(unique.length - 1); }
+  }
+  const parent = unique.map((_, i) => i);
+  const findRoot = (x) => (parent[x] === x ? x : (parent[x] = findRoot(parent[x])));
+  const link = (a, b) => { const ra = findRoot(a), rb = findRoot(b); if (ra !== rb) parent[ra] = rb; };
+  for (let t = 0; t < triCount; t++) {
+    const a = order[triVert(t, 0)], b = order[triVert(t, 1)], c = order[triVert(t, 2)];
+    link(a, b); link(b, c);
+  }
+  const comps = new Map();
+  unique.forEach((_, i) => {
+    const r = findRoot(i);
+    if (!comps.has(r)) comps.set(r, 0);
+    comps.set(r, comps.get(r) + 1);
+  });
+  let isolated = 0, largest = 1, totalEdges = 0;
+  const edgeSet = new Set();
+  for (let t = 0; t < triCount; t++) {
+    const a = order[triVert(t, 0)], b = order[triVert(t, 1)], c = order[triVert(t, 2)];
+    const e1 = a < b ? `${a}:${b}` : `${b}:${a}`;
+    const e2 = b < c ? `${b}:${c}` : `${c}:${b}`;
+    const e3 = a < c ? `${a}:${c}` : `${c}:${a}`;
+    edgeSet.add(e1); edgeSet.add(e2); edgeSet.add(e3);
+  }
+  totalEdges = edgeSet.size;
+  comps.forEach((n) => { if (n === 1) isolated++; if (n > largest) largest = n; });
+  return { featureVerts: unique.length, components: comps.size, isolated, largest, edges: totalEdges };
+}
+
+function subTopologyInfo() {
+  if (!subData || subData.selected == null) return null;
+  const { unique, tris, edges, selType, selected } = subData;
+  if (selType === "vertex") {
+    const vertex = unique[selected];
+    const refs = tris.filter((t) => t.includes(selected));
+    const neighbors = new Set();
+    refs.forEach((t) => t.forEach((u) => { if (u !== selected) neighbors.add(u); }));
+    return { label: `Sommet n°${selected}`, lines: [`Valence : ${neighbors.size} arêtes`, `Références : ${vertex.idxs.length}`] };
+  }
+  if (selType === "edge") {
+    const ed = edges[selected];
+    const used = tris.filter((t) => t.includes(ed.a) && t.includes(ed.b));
+    return { label: `Arête n°${selected}`, lines: [`Faces adjacentes : ${used.length}`, `Extrémités : ${ed.a} → ${ed.b}`] };
+  }
+  if (selType === "face") {
+    const tri = tris[selected];
+    const ring = new Set();
+    tris.forEach((t, fi) => {
+      if (fi === selected) return;
+      if (t.filter((u) => tri.includes(u)).length === 2) ring.add(fi);
+    });
+    return { label: `Face n°${selected}`, lines: [`Sommets : ${tri.join(", ")}`, `Faces voisines : ${ring.size}`] };
+  }
+  return null;
+}
+
+function showGeoInfo() {
+  const panel = document.querySelector("#geoInfoPanel");
+  panel.classList.toggle("hidden");
+  if (panel.classList.contains("hidden")) return;
+  renderGeoInfo();
+}
+
+function renderGeoInfo() {
+  const panel = document.querySelector("#geoInfoPanel");
+  const content = document.querySelector("#geoInfoContent");
+  if (!panel || !content) return;
+  const ids = selectedMeshIds();
+  if (!ids.length) {
+    content.innerHTML = '<div class="geo-row">Sélectionne un ou plusieurs objets 3D.</div>';
+    return;
+  }
+  const lines = [];
+  if (ids.length === 1) {
+    const id = ids[0];
+    const spec = findSpec(id);
+    const stats = meshStats(id);
+    if (stats) {
+      lines.push(`<div class="geo-row"><b>${escapeHTML(spec?.name || "Objet")}</b></div>`);
+      lines.push(`<div class="geo-row">Sommets : ${stats.verts} · Faces : ${stats.faces} · Arêtes : ${(vertexClusterTopology(id) || {}).edges ?? "—"}</div>`);
+      lines.push(`<div class="geo-row">Dimensions : ${fmt2(stats.size.x)} × ${fmt2(stats.size.y)} × ${fmt2(stats.size.z)} m</div>`);
+      lines.push(`<div class="geo-row">Surface : ${fmt2(stats.surface)} m² · Volume : ${fmt2(stats.volume)} m³</div>`);
+      const topo = vertexClusterTopology(id);
+      if (topo) {
+        lines.push(`<div class="geo-row">Sommet-données : ${topo.featureVerts} · Composantes : ${topo.components} · Isolés : ${topo.isolated} · Plus grosse : ${topo.largest}</div>`);
+      }
+    } else {
+      lines.push(`<div class="geo-row">Objet sans maillage mesurable.</div>`);
+    }
+    const sub = subTopologyInfo();
+    if (sub) {
+      lines.push(`<div class="geo-row geo-sub"><b>${sub.label}</b></div>`);
+      sub.lines.forEach((l) => lines.push(`<div class="geo-row geo-sub">${l}</div>`));
+    }
+  } else {
+    let totalSurface = 0, totalVolume = 0;
+    ids.forEach((id) => {
+      const stats = meshStats(id);
+      if (stats) { totalSurface += stats.surface; totalVolume += stats.volume; }
+    });
+    lines.push(`<div class="geo-row"><b>${ids.length} objets sélectionnés</b></div>`);
+    lines.push(`<div class="geo-row">Surface totale : ${fmt2(totalSurface)} m²</div>`);
+    lines.push(`<div class="geo-row">Volume total : ${fmt2(totalVolume)} m³</div>`);
+  }
+  content.innerHTML = lines.join("");
+}
+
+function fmt2(v) {
+  const n = Math.round(v * 100) / 100;
+  return Object.is(n, -0) ? "0" : String(n);
+}
+
+/* ---- Scene animation ----
+ * spec.anim = { type, amp, speed } ; types : sway | bob | spin | pulse | drift | water | cloth
+ */
+function updateSceneAnimation(dt) {
+  const t = state.anim.t;
+  state.objects.forEach((spec) => {
+    if (!spec.anim) return;
+    const mesh = findMesh(spec.id);
+    if (!mesh) return;
+    const a = spec.anim;
+    switch (a.type) {
+      case "sway": {
+        mesh.rotation.z = Math.sin(t * a.speed) * a.amp * 0.4;
+        mesh.rotation.y = Math.sin(t * a.speed * 0.73) * a.amp * 0.3;
+        mesh.rotation.x = Math.sin(t * a.speed * 0.5 + 1) * a.amp * 0.1;
+        break;
+      }
+      case "bob": {
+        mesh.position.y = spec.position.y + Math.sin(t * a.speed) * a.amp;
+        break;
+      }
+      case "spin": {
+        mesh.rotation.y += a.speed * dt;
+        break;
+      }
+      case "pulse": {
+        const s = 1 + Math.sin(t * a.speed) * a.amp * 0.3;
+        mesh.scale.set(spec.scale.x * s, spec.scale.y * s, spec.scale.z * s);
+        break;
+      }
+      case "drift": {
+        mesh.position.y = spec.position.y + Math.sin(t * a.speed) * a.amp;
+        mesh.rotation.y += a.speed * dt * 0.4;
+        mesh.rotation.x += a.speed * dt * 0.15;
+        break;
+      }
+      case "water":
+      case "cloth": {
+        animateWaveMesh(mesh, a, t);
+        break;
+      }
+    }
+  });
+}
+
+function animateWaveMesh(mesh, a, t) {
+  const base = mesh.userData.animBase;
+  if (!base) return;
+  const pos = mesh.geometry.attributes.position;
+  const horizontal = a.type === "water";
+  for (let i = 0; i < pos.count; i++) {
+    const bx = base[i * 3], by = base[i * 3 + 1], bz = base[i * 3 + 2];
+    if (horizontal) {
+      const y = by
+        + Math.sin(t * a.speed + bx * 3.1 + bz * 2.3) * a.amp
+        + Math.cos(t * a.speed * 0.7 + bz * 4.1 - bx * 1.7) * a.amp * 0.55;
+      pos.setY(i, y);
+    } else {
+      const z = bz
+        + Math.sin(t * a.speed + bx * 4 + by * 3) * a.amp
+        + Math.cos(t * a.speed * 0.8 + by * 5) * a.amp * 0.45;
+      pos.setZ(i, z);
+    }
+  }
+  pos.needsUpdate = true;
+  mesh.geometry.computeVertexNormals();
+}
+
+function toggleAnimPlay() {
+  state.anim.playing = !state.anim.playing;
+  document.querySelector("#animBtn")?.classList.toggle("active", state.anim.playing);
+  setStatusInfo(state.anim.playing ? "Animation : lecture" : "Animation : pause");
+}
+
+function setObjectAnim(type) {
+  const ids = selectedMeshIds();
+  if (!ids.length) { setStatusInfo("Sélectionne d'abord un objet"); return; }
+  pushUndo();
+  ids.forEach((id) => {
+    const spec = findSpec(id);
+    const mesh = findMesh(id);
+    if (!spec || !mesh) return;
+    if (type === "none") {
+      spec.anim = null;
+      mesh.userData.anim = null;
+      mesh.rotation.set(spec.rotation?.x || 0, spec.rotation?.y || 0, spec.rotation?.z || 0);
+      mesh.position.set(spec.position.x, spec.position.y, spec.position.z);
+      return;
+    }
+    const presets = {
+      sway: { amp: 0.18, speed: 1.1 },
+      bob: { amp: 0.12, speed: 1.2 },
+      spin: { amp: 0, speed: 1.1 },
+      pulse: { amp: 0.35, speed: 0.8 },
+    };
+    spec.anim = { type, ...presets[type] };
+    mesh.userData.anim = spec.anim;
+    if ((type === "water" || type === "cloth") && !mesh.userData.animBase && mesh.geometry?.attributes?.position) {
+      mesh.userData.animBase = new Float32Array(mesh.geometry.attributes.position.array.slice());
+    }
+  });
+  renderInspector();
+  updateStatusBar();
+  setStatusInfo(type === "none" ? "Animation supprimée" : `Animation ${type} appliquée`);
+}
+
+function linkSelected() {
+  const ids = selectedMeshIds();
+  if (ids.length < 2) { setStatusInfo("Sélectionne ≥ 2 objets pour lier (le dernier sélectionné devient parent)"); return; }
+  pushUndo();
+  const parent = ids[ids.length - 1];
+  ids.forEach((id) => {
+    if (id === parent) return;
+    const spec = findSpec(id);
+    if (spec) spec.parentId = parent;
+  });
+  renderObjectList();
+  setStatusInfo(`Objets liés au parent (déplace le parent pour entraîner les enfants)`);
+}
+
+function unlinkSelected() {
+  const ids = selectedMeshIds();
+  if (!ids.length) { setStatusInfo("Aucun objet sélectionné"); return; }
+  pushUndo();
+  ids.forEach((id) => {
+    const spec = findSpec(id);
+    if (spec) spec.parentId = null;
+  });
+  renderObjectList();
+  setStatusInfo("Liaison supprimée");
+}
+
+function propagateLinked(id, delta) {
+  state.objects.forEach((spec) => {
+    if (spec.parentId !== id) return;
+    const mesh = findMesh(spec.id);
+    if (!mesh) return;
+    spec.position.x = round(spec.position.x + delta.x);
+    spec.position.y = round(spec.position.y + delta.y);
+    spec.position.z = round(spec.position.z + delta.z);
+    mesh.position.set(spec.position.x, spec.position.y, spec.position.z);
+    mesh.updateMatrix();
+    propagateLinked(spec.id, delta);
+  });
+}
+
+/* ---- Cinematic timeline & keyframes ---- */
+const CINE_STEP = 4;
+
+function cineHasKeys() {
+  const c = state.cine;
+  return c.shots.length + c.objKeys.length > 0;
+}
+
+function cineDuration() {
+  const c = state.cine;
+  if (c.duration && c.duration > 0) return c.duration;
+  let maxT = 0;
+  for (const s of c.shots) maxT = Math.max(maxT, s.t || 0);
+  for (const k of c.objKeys) maxT = Math.max(maxT, k.t || 0);
+  return Math.max(CINE_STEP, maxT + CINE_STEP);
+}
+
+const CINE_EASES = {
+  linear: (p) => p,
+  easeIn: (p) => p * p,
+  easeOut: (p) => 1 - Math.pow(1 - p, 2),
+  easeInOut: (p) => (p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2),
+};
+
+function cineEase(p, ease) {
+  const f = CINE_EASES[ease] || CINE_EASES.easeInOut;
+  return f(Math.max(0, Math.min(1, p)));
+}
+
+function lerpAngle(a, b, p) {
+  let d = (b - a) % (Math.PI * 2);
+  if (d < -Math.PI) d += Math.PI * 2;
+  if (d > Math.PI) d -= Math.PI * 2;
+  return a + d * p;
+}
+
+function lerpColor(ca, cb, p) {
+  return new THREE.Color(ca).lerp(new THREE.Color(cb), p).getStyle();
+}
+
+function v3cp(v) {
+  return { x: v.x, y: v.y, z: v.z };
+}
+
+function cineObjKeyed(id) {
+  return state.cine.objKeys.some((k) => k.id === id);
+}
+
+function cineData() {
+  const c = state.cine;
+  return {
+    shots: c.shots.map((s) => ({ pos: s.pos, target: s.target, t: s.t, ease: s.ease })),
+    objKeys: c.objKeys.map((k) => ({ id: k.id, t: k.t, pos: k.pos, rot: k.rot, scale: k.scale, color: k.color, opacity: k.opacity })),
+    loop: !!c.loop,
+    duration: c.duration || null,
+  };
+}
+
+function restoreCineData(d) {
+  const c = state.cine;
+  c.shots = ((d && d.shots) || []).map((s, i) => {
+    const t = typeof s.t === "number" ? s.t : i * CINE_STEP;
+    const pos = s.pos || (s.pv && { x: s.pv.x, y: s.pv.y, z: s.pv.z }) || { x: 0, y: 2, z: 5 };
+    const target = s.target || (s.tv && { x: s.tv.x, y: s.tv.y, z: s.tv.z }) || { x: 0, y: 0, z: 0 };
+    return { pos, target, pv: new THREE.Vector3(pos.x, pos.y, pos.z), tv: new THREE.Vector3(target.x, target.y, target.z), t, ease: s.ease || "easeInOut" };
+  });
+  c.objKeys = ((d && d.objKeys) || []).filter((k) => state.objects.some((o) => o.id === k.id)).map((k) => ({
+    id: k.id,
+    t: typeof k.t === "number" ? k.t : 0,
+    ease: k.ease || "linear",
+    pos: k.pos || null,
+    rot: k.rot || null,
+    scale: k.scale || null,
+    color: k.color || null,
+    opacity: typeof k.opacity === "number" ? k.opacity : null,
+  }));
+  c.loop = !!(d && d.loop);
+  c.duration = (d && d.duration) || null;
+  c.index = c.shots.length ? Math.min(Math.max(c.index, 0), c.shots.length - 1) : -1;
+  c.playing = false;
+  c.t = 0;
+  renderCineTimeline();
+  updateCineHead();
+}
+
+function sortedShots() {
+  return state.cine.shots.slice().sort((a, b) => a.t - b.t);
+}
+
+function ensureShotKey(s) {
+  if (!s.pv) s.pv = new THREE.Vector3(s.pos.x, s.pos.y, s.pos.z);
+  if (!s.tv) s.tv = new THREE.Vector3(s.target.x, s.target.y, s.target.z);
+  return s;
+}
+
+function captureShot() {
+  const c = state.cine;
+  const lastT = c.shots.reduce((m, s) => Math.max(m, s.t || 0), 0);
+  const t = c.t > 0.01 && c.t < lastT ? c.t : lastT + CINE_STEP;
+  const shot = {
+    pos: v3cp(camera.position),
+    target: v3cp(controls.target),
+    pv: camera.position.clone(),
+    tv: controls.target.clone(),
+    t,
+    ease: "easeInOut",
+  };
+  c.shots.push(shot);
+  c.shots.sort((a, b) => a.t - b.t);
+  c.index = c.shots.indexOf(shot);
+  c.t = t;
+  renderCineTimeline();
+  updateCineHead();
+  setStatusInfo(`Clé caméra à ${t.toFixed(1)}s (${c.shots.length} clés)`);
+}
+
+function goCineShot(i) {
+  const c = state.cine;
+  if (!c.shots.length) { setStatusInfo("Aucune clé caméra (bouton Clé)"); return; }
+  c.index = Math.max(0, Math.min(c.shots.length - 1, i));
+  const s = ensureShotKey(sortedShots()[c.index]);
+  c.t = s.t;
+  cineEval(c.t);
+  controls.update();
+  updateCineHead();
+  setStatusInfo(`Clé caméra ${c.index + 1}/${c.shots.length} à ${s.t.toFixed(1)}s`);
+}
+
+function toggleCine() {
+  const c = state.cine;
+  if (c.playing) {
+    c.playing = false;
+    controls.enabled = true;
+    setStatusInfo("Lecture arrêtée");
+    return;
+  }
+  if (!cineHasKeys()) { setStatusInfo("Ajoute d'abord des clés (Clé / Clé Obj)"); return; }
+  if (c.t >= cineDuration() - 0.01) c.t = 0;
+  c.playing = true;
+  controls.enabled = false;
+  setStatusInfo("Lecture de la timeline");
+}
+
+function cineCameraState(shots, t) {
+  if (!shots.length) return null;
+  const first = ensureShotKey(shots[0]);
+  const last = ensureShotKey(shots[shots.length - 1]);
+  if (t <= first.t) return { pv: first.pv.clone(), tv: first.tv.clone() };
+  if (t >= last.t) return { pv: last.pv.clone(), tv: last.tv.clone() };
+  for (let i = 0; i < shots.length - 1; i++) {
+    const a = ensureShotKey(shots[i]);
+    const b = ensureShotKey(shots[i + 1]);
+    if (t >= a.t && t <= b.t) {
+      const p = b.t === a.t ? 0 : (t - a.t) / (b.t - a.t);
+      const e = cineEase(p, a.ease);
+      return {
+        pv: new THREE.Vector3().lerpVectors(a.pv, b.pv, e),
+        tv: new THREE.Vector3().lerpVectors(a.tv, b.tv, e),
+      };
+    }
+  }
+  return null;
+}
+
+function meshMatColor(mat) {
+  const m = Array.isArray(mat) ? mat[0] : mat;
+  if (!m || !m.color) return { color: null, opacity: null };
+  const color = "#" + m.color.getHexString();
+  const opacity = m.transparent || m.opacity < 1 ? m.opacity : null;
+  return { color, opacity };
+}
+
+function captureKeyVals(spec, mesh) {
+  const mc = meshMatColor(mesh.material);
+  return {
+    pos: { x: round(mesh.position.x), y: round(mesh.position.y), z: round(mesh.position.z) },
+    rot: { x: round(mesh.rotation.x), y: round(mesh.rotation.y), z: round(mesh.rotation.z) },
+    scale: { x: round(mesh.scale.x), y: round(mesh.scale.y), z: round(mesh.scale.z) },
+    color: mc.color,
+    opacity: mc.opacity,
+  };
+}
+
+function keyValsForKey(k) {
+  return { pos: k.pos, rot: k.rot, scale: k.scale, color: k.color, opacity: k.opacity };
+}
+
+function lerpKeyVals(a, b, p) {
+  return {
+    pos: {
+      x: a.pos.x + (b.pos.x - a.pos.x) * p,
+      y: a.pos.y + (b.pos.y - a.pos.y) * p,
+      z: a.pos.z + (b.pos.z - a.pos.z) * p,
+    },
+    rot: {
+      x: lerpAngle(a.rot.x, b.rot.x, p),
+      y: lerpAngle(a.rot.y, b.rot.y, p),
+      z: lerpAngle(a.rot.z, b.rot.z, p),
+    },
+    scale: {
+      x: a.scale.x + (b.scale.x - a.scale.x) * p,
+      y: a.scale.y + (b.scale.y - a.scale.y) * p,
+      z: a.scale.z + (b.scale.z - a.scale.z) * p,
+    },
+    color: a.color && b.color ? lerpColor(a.color, b.color, p) : null,
+    opacity: a.opacity != null && b.opacity != null ? a.opacity + (b.opacity - a.opacity) * p : null,
+  };
+}
+
+function evalObjKeys(keys, t) {
+  if (!keys.length) return null;
+  if (t <= keys[0].t) return keyValsForKey(keys[0]);
+  const last = keys[keys.length - 1];
+  if (t >= last.t) return keyValsForKey(last);
+  for (let i = 0; i < keys.length - 1; i++) {
+    const a = keys[i];
+    const b = keys[i + 1];
+    if (t >= a.t && t <= b.t) {
+      const p = b.t === a.t ? 0 : (t - a.t) / (b.t - a.t);
+      return lerpKeyVals(a, b, cineEase(p, a.ease));
+    }
+  }
+  return keyValsForKey(last);
+}
+
+function applyObjKeyVals(id, vals) {
+  const mesh = findMesh(id);
+  const spec = findSpec(id);
+  if (!mesh || !vals.pos) return;
+  mesh.position.set(vals.pos.x, vals.pos.y, vals.pos.z);
+  mesh.rotation.set(vals.rot.x, vals.rot.y, vals.rot.z);
+  mesh.scale.set(vals.scale.x, vals.scale.y, vals.scale.z);
+  if (spec) {
+    spec.position = { x: vals.pos.x, y: vals.pos.y, z: vals.pos.z };
+    spec.rotation = { x: vals.rot.x, y: vals.rot.y, z: vals.rot.z };
+    spec.scale = { x: vals.scale.x, y: vals.scale.y, z: vals.scale.z };
+  }
+  if (vals.color) {
+    const col = new THREE.Color(vals.color);
+    mesh.traverse((o) => {
+      if (!o.isMesh || !o.material) return;
+      const arr = Array.isArray(o.material) ? o.material : [o.material];
+      arr.forEach((m) => m.color && m.color.copy(col));
+    });
+  }
+  if (vals.opacity != null) {
+    mesh.traverse((o) => {
+      if (!o.isMesh || !o.material) return;
+      const arr = Array.isArray(o.material) ? o.material : [o.material];
+      arr.forEach((m) => {
+        m.transparent = true;
+        m.opacity = vals.opacity;
+        m.needsUpdate = true;
+      });
+    });
+  }
+}
+
+function cineEval(t) {
+  const shots = sortedShots();
+  if (shots.length) {
+    const cam = cineCameraState(shots, t);
+    if (cam) {
+      camera.position.copy(cam.pv);
+      controls.target.copy(cam.tv);
+    }
+  }
+  const byId = {};
+  for (const k of state.cine.objKeys) {
+    if (!k.pos) continue;
+    if (!findSpec(k.id)) continue;
+    if (!byId[k.id]) byId[k.id] = [];
+    byId[k.id].push(k);
+  }
+  for (const id in byId) {
+    const keys = byId[id].slice().sort((a, b) => a.t - b.t);
+    const vals = evalObjKeys(keys, t);
+    if (vals) applyObjKeyVals(id, vals);
+  }
+}
+
+function cineTick(dt) {
+  const c = state.cine;
+  if (!cineHasKeys()) { c.playing = false; controls.enabled = true; return; }
+  c.t += dt;
+  const total = cineDuration();
+  if (c.t >= total) {
+    if (c.loop) {
+      c.t = c.t % total;
+    } else {
+      c.t = total;
+      cineEval(c.t);
+      stopCineRecordingIfDone();
+      c.playing = false;
+      controls.enabled = true;
+      setStatusInfo("Cinématique terminée");
+      return;
+    }
+  }
+  cineEval(c.t);
+  updateCineHead();
+}
+
+function seekCine(t) {
+  const c = state.cine;
+  c.t = Math.max(0, Math.min(cineDuration(), t));
+  cineEval(c.t);
+  controls.update();
+  updateCineHead();
+}
+
+function addObjectKeyframe() {
+  const id = primaryId();
+  if (!id || isClusterId(id)) { setStatusInfo("Sélectionne un objet (pas un groupe) à animer"); return; }
+  const mesh = findMesh(id);
+  if (!mesh) return;
+  const c = state.cine;
+  const t = Math.max(0, c.t);
+  const vals = captureKeyVals(findSpec(id), mesh);
+  const existing = c.objKeys.find((k) => k.id === id && Math.abs(k.t - t) < 0.25);
+  if (existing) {
+    Object.assign(existing, vals);
+    existing.t = t;
+  } else {
+    c.objKeys.push(Object.assign({ id, t, ease: "linear" }, vals));
+  }
+  c.objKeys.sort((a, b) => a.t - b.t);
+  renderCineTimeline();
+  updateCineHead();
+  setStatusInfo(`Clé d'animation à ${t.toFixed(1)}s`);
+}
+
+function removeKeyAtPlayhead() {
+  const c = state.cine;
+  const t = c.t;
+  let n = 0;
+  const nbShots = c.shots.length;
+  c.shots = c.shots.filter((s) => Math.abs((s.t || 0) - t) > 0.25);
+  n += nbShots - c.shots.length;
+  const id = primaryId();
+  if (id) {
+    const nbObj = c.objKeys.length;
+    c.objKeys = c.objKeys.filter((k) => !(k.id === id && Math.abs(k.t - t) < 0.25));
+    n += nbObj - c.objKeys.length;
+  }
+  c.index = c.shots.length ? Math.max(0, Math.min(c.index, c.shots.length - 1)) : -1;
+  renderCineTimeline();
+  updateCineHead();
+  setStatusInfo(n ? `${n} clé(s) supprimée(s)` : "Aucune clé à la position courante");
+}
+
+function toggleCineLoop() {
+  const c = state.cine;
+  c.loop = !c.loop;
+  document.querySelector("#cineLoopBtn")?.classList.toggle("active", c.loop);
+  setStatusInfo(c.loop ? "Lecture en boucle activée" : "Lecture en boucle désactivée");
+}
+
+function toggleCinePanel() {
+  const panel = document.querySelector("#cinePanel");
+  const btn = document.querySelector("#cinePanelBtn");
+  if (!panel) return;
+  const hide = panel.classList.toggle("hidden");
+  if (btn) btn.classList.toggle("active", !hide);
+  if (!hide) {
+    renderCineTimeline();
+    updateCineHead();
+  }
+}
+
+function cineXPx(el, total, t) {
+  const labelW = 88;
+  const w = (el && el.clientWidth) ? el.clientWidth : 900;
+  const p = total > 0 ? Math.max(0, Math.min(1, (t || 0) / total)) : 0;
+  return labelW + (w - labelW) * p;
+}
+
+function cineTFromEvent(ev, el, total) {
+  const rect = el.getBoundingClientRect();
+  const x = ev.clientX - rect.left;
+  const labelW = 88;
+  const trackW = Math.max(1, rect.width - labelW);
+  return Math.max(0, ((x - labelW) / trackW) * total);
+}
+
+function updateCineHead() {
+  const c = state.cine;
+  const total = cineDuration();
+  const el = document.getElementById("cineTime");
+  if (el) el.textContent = `${c.t.toFixed(1)}s / ${total.toFixed(1)}s`;
+  const ph = document.getElementById("cinePlayhead");
+  if (ph) ph.style.left = cineXPx(ph.parentElement, total, c.t) + "px";
+}
+
+function renderCineTimeline() {
+  const el = document.getElementById("cineTimeline");
+  if (!el) return;
+  const c = state.cine;
+  const total = cineDuration();
+  el.innerHTML = "";
+
+  const ruler = document.createElement("div");
+  ruler.className = "cine-row cine-ruler-row";
+  const rtrack = document.createElement("div");
+  rtrack.className = "cine-track cine-ruler-track";
+  const step = total <= 8 ? 1 : 2;
+  for (let i = 0; i * step <= total + 0.001; i++) {
+    const tk = document.createElement("span");
+    tk.className = "cine-tick";
+    tk.textContent = String(i * step);
+    rtrack.appendChild(tk);
+  }
+  ruler.appendChild(rtrack);
+  el.appendChild(ruler);
+
+  const addLane = (label, keyList, cls) => {
+    const row = document.createElement("div");
+    row.className = "cine-row";
+    const l = document.createElement("div");
+    l.className = "cine-lane-label " + (cls.indexOf("cam") >= 0 ? "cam" : "obj");
+    l.textContent = label;
+    row.appendChild(l);
+    const track = document.createElement("div");
+    track.className = "cine-track";
+    track.addEventListener("pointerdown", (ev) => {
+      if (ev.target === track) seekCine(cineTFromEvent(ev, el, total));
+    });
+    keyList.forEach((key) => {
+      const mk = document.createElement("div");
+      mk.className = cls;
+      mk.style.left = ((total > 0 ? Math.max(0, Math.min(1, key.t / total)) : 0) * 100) + "%";
+      mk.title = `${key.t.toFixed(1)}s`;
+      mk.addEventListener("pointerdown", (ev) => {
+        ev.stopPropagation();
+        ev.preventDefault();
+        state.cine.playing = false;
+        controls.enabled = true;
+        const move = (e2) => {
+          key.t = Math.max(0, cineTFromEvent(e2, el, total));
+          mk.style.left = ((total > 0 ? Math.max(0, Math.min(1, key.t / total)) : 0) * 100) + "%";
+          updateCineHead();
+        };
+        const up = () => {
+          window.removeEventListener("pointermove", move);
+          window.removeEventListener("pointerup", up);
+          c.shots.sort((a, b) => a.t - b.t);
+          c.objKeys.sort((a, b) => a.t - b.t);
+          renderCineTimeline();
+          updateCineHead();
+          setStatusInfo(`Clé déplacée à ${key.t.toFixed(1)}s`);
+        };
+        window.addEventListener("pointermove", move);
+        window.addEventListener("pointerup", up);
+      });
+      track.appendChild(mk);
+    });
+    row.appendChild(track);
+    el.appendChild(row);
+  };
+
+  if (c.shots.length) addLane("Caméra", sortedShots(), "cine-key-cam");
+  const ids = [...new Set(c.objKeys.map((k) => k.id))].filter((id) => findSpec(id));
+  ids.forEach((id) => {
+    const spec = findSpec(id);
+    const keys = c.objKeys.filter((k) => k.id === id).sort((a, b) => a.t - b.t);
+    if (keys.length) addLane(spec ? spec.name : "?", keys, "cine-key-obj");
+  });
+
+  const ph = document.createElement("div");
+  ph.className = "cine-playhead";
+  ph.id = "cinePlayhead";
+  el.appendChild(ph);
+  updateCineHead();
+}
+
+function exportVideo() {
+  const c = state.cine;
+  if (typeof MediaRecorder === "undefined") { setStatusInfo("MediaRecorder indisponible dans ce navigateur"); return; }
+  if (c.rec && c.rec.state !== "inactive") return;
+  if (!cineHasKeys()) { setStatusInfo("Ajoute d'abord des clés (Clé / Clé Obj)"); return; }
+  c.playing = true;
+  c.t = 0;
+  controls.enabled = false;
+  const stream = renderer.domElement.captureStream(30);
+  const mime = ["video/webm;codecs=vp9", "video/webm"].find((m) => MediaRecorder.isTypeSupported(m)) || "video/webm";
+  const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 8_000_000 });
+  const chunks = [];
+  rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+  rec.onstop = () => {
+    const blob = new Blob(chunks, { type: mime });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${slug(state.name)}-cine.webm`;
+    link.click();
+    URL.revokeObjectURL(url);
+    stream.getTracks().forEach((t) => t.stop());
+    setStatusInfo("Vidéo exportée");
+  };
+  c.rec = rec;
+  c.recStart = performance.now();
+  rec.start(200);
+  setStatusInfo(`Export vidéo en cours (${cineDuration().toFixed(0)}s)…`);
+}
+
+function stopCineRecordingIfDone() {
+  const c = state.cine;
+  if (c.rec && c.rec.state === "recording") {
+    c.rec.stop();
+    c.rec = null;
+  }
+}
+
+/* ---- Landscape vegetation ---- */
+function scatterVegetation(kind) {
+  const ls = state.landscape;
+  if (!ls.mesh) { setStatusInfo("Construis d'abord un paysage (Sculpt → Appliquer)"); return; }
+  const key = `scatter_${kind}`;
+  if (ls[key]) landscapeGroup.remove(ls[key]);
+  const counts = { grass: 2400, shrub: 80, rock: 34 }[kind] || 0;
+  if (kind === "clear") {
+    Object.keys(ls).forEach((k) => { if (String(k).startsWith("scatter_") && ls[k]) landscapeGroup.remove(ls[k]); });
+    ls.scatter_grass = ls.scatter_shrub = ls.scatter_rock = null;
+    setStatusInfo("Végétation retirée du paysage");
+    return;
+  }
+  let geom;
+  const color = kind === "grass" ? 0x6ab24a : kind === "shrub" ? 0x3f7a3f : 0x7a7a7a;
+  const rz = kind === "grass" ? 0.05 : 0.18;
+  const ry = kind === "grass" ? 0.24 : 0.5;
+  if (kind === "grass") geom = new THREE.ConeGeometry(rz, ry, 4);
+  else geom = new THREE.IcosahedronGeometry(rz, kind === "rock" ? 1 : 0);
+  const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.92, metalness: kind === "rock" ? 0.08 : 0 });
+  const im = new THREE.InstancedMesh(geom, mat, counts);
+  const dummy = new THREE.Object3D();
+  const ray = new THREE.Raycaster();
+  const origin = new THREE.Vector3();
+  const dir = new THREE.Vector3(0, -1, 0);
+  const half = ls.size / 2;
+  let placed = 0;
+  for (let i = 0; i < counts; i++) {
+    origin.set((Math.random() * 2 - 1) * half, 120, (Math.random() * 2 - 1) * half);
+    ray.set(origin, dir);
+    const hits = ray.intersectObject(ls.mesh, false);
+    if (!hits.length) continue;
+    const p = hits[0].point;
+    dummy.position.set(p.x, p.y, p.z);
+    dummy.scale.setScalar(kind === "grass" ? 0.7 + Math.random() * 0.9 : 0.6 + Math.random() * 1.3);
+    dummy.rotation.set(kind === "grass" ? 0 : Math.random() * Math.PI, Math.random() * Math.PI * 2, 0);
+    dummy.updateMatrix();
+    im.setMatrixAt(i, dummy.matrix);
+    placed++;
+  }
+  im.count = placed;
+  im.instanceMatrix.needsUpdate = true;
+  im.castShadow = im.receiveShadow = true;
+  landscapeGroup.add(im);
+  ls[key] = im;
+  setStatusInfo(`${placed} ${kind} réparti(s) sur le terrain`);
+}
+
+function clearVegetation() {
+  scatterVegetation("clear");
+}
+
 function initLighting() {
   const ambient = new THREE.HemisphereLight(0xffffff, 0x283038, 1.5);
+  ambient.intensity = 0.9;
   scene.add(ambient);
 
-  const sun = new THREE.DirectionalLight(0xffffff, 2.8);
+  const sun = new THREE.DirectionalLight(0xfff4e0, 2.8);
   sun.position.set(5, 8, 4);
   sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.camera.near = 0.5;
+  sun.shadow.camera.far = 40;
+  sun.shadow.camera.left = -14;
+  sun.shadow.camera.right = 14;
+  sun.shadow.camera.top = 14;
+  sun.shadow.camera.bottom = -14;
+  sun.shadow.bias = -0.0004;
+  sun.shadow.normalBias = 0.02;
   scene.add(sun);
+  window.__inerreSun = sun;
+
+  const fill = new THREE.DirectionalLight(0xa8c8ff, 0.6);
+  fill.position.set(-6, 4, -5);
+  scene.add(fill);
+
+  const bounce = new THREE.PointLight(0xffffff, 0.35, 20);
+  bounce.position.set(0, 1.2, 0);
+  scene.add(bounce);
 
   gridHelper = new THREE.GridHelper(40, 40, 0x4f6660, 0x2c3436);
   gridHelper.position.y = 0.01;
@@ -1735,6 +2942,11 @@ function setSubObjectLevel(level) {
   document.querySelectorAll("[data-subobj]").forEach(btn => {
     btn.classList.toggle("active", btn.dataset.subobj === level);
   });
+  if (level === "object") {
+    exitSubObjectMode();
+  } else {
+    enterSubMode(level);
+  }
   dom.statusMode.textContent = `Mode: ${level === "object" ? "Objet" : level.charAt(0).toUpperCase() + level.slice(1)}`;
   updateStatusBar();
 }
@@ -1955,10 +3167,47 @@ function bindUI() {
   document.querySelectorAll("[data-mirror-axis]").forEach((btn) => {
     btn.addEventListener("click", () => mirrorSelected(btn.dataset.mirrorAxis));
   });
+  document.querySelector("#clusterBtn")?.addEventListener("click", clusterSelected);
+  document.querySelector("#unclusterBtn")?.addEventListener("click", unclusterSelected);
+  document.querySelector("#neighBtn")?.addEventListener("click", selectNeighbors);
+  document.querySelector("#stickBtn")?.addEventListener("click", stickSelected);
+  document.querySelector("#alignCenterBtn")?.addEventListener("click", alignCentersXZ);
+  document.querySelector("#distXBtn")?.addEventListener("click", () => distributeSelected("x"));
+  document.querySelector("#distZBtn")?.addEventListener("click", () => distributeSelected("z"));
+  document.querySelector("#geoInfoBtn")?.addEventListener("click", showGeoInfo);
+  document.querySelector("#cineShotBtn")?.addEventListener("click", captureShot);
+  document.querySelector("#cinePrevBtn")?.addEventListener("click", () => goCineShot(state.cine.index - 1));
+  document.querySelector("#cineNextBtn")?.addEventListener("click", () => goCineShot(state.cine.index + 1));
+  document.querySelector("#cinePlayBtn")?.addEventListener("click", toggleCine);
+  document.querySelector("#cineExportBtn")?.addEventListener("click", exportVideo);
+  document.querySelector("#cinePanelBtn")?.addEventListener("click", toggleCinePanel);
+  document.querySelector("#cineObjKeyBtn")?.addEventListener("click", addObjectKeyframe);
+  document.querySelector("#cineLoopBtn")?.addEventListener("click", toggleCineLoop);
+  document.querySelector("#cineDelKeyBtn")?.addEventListener("click", removeKeyAtPlayhead);
+  document.querySelector("#cineSeekBtn")?.addEventListener("click", () => goCineShot(0));
+  document.querySelector("#cinePanelSaveBtn")?.addEventListener("click", () => {
+    const d = cineData();
+    setStatusInfo(`${d.shots.length} clés caméra · ${d.objKeys.length} clés d'objet · boucle ${d.loop ? "ON" : "OFF"} · ${cineDuration().toFixed(1)}s`);
+  });
+  document.querySelector("#animBtn")?.addEventListener("click", toggleAnimPlay);
+  document.querySelector("#swayBtn")?.addEventListener("click", () => setObjectAnim("sway"));
+  document.querySelector("#bobBtn")?.addEventListener("click", () => setObjectAnim("bob"));
+  document.querySelector("#spinBtn")?.addEventListener("click", () => setObjectAnim("spin"));
+  document.querySelector("#animNoneBtn")?.addEventListener("click", () => setObjectAnim("none"));
+  document.querySelector("#linkBtn")?.addEventListener("click", linkSelected);
+  document.querySelector("#unlinkBtn")?.addEventListener("click", unlinkSelected);
+  document.querySelector("#natGrassBtn")?.addEventListener("click", () => scatterVegetation("grass"));
+  document.querySelector("#natShrubBtn")?.addEventListener("click", () => scatterVegetation("shrub"));
+  document.querySelector("#natRockBtn")?.addEventListener("click", () => scatterVegetation("rock"));
+  document.querySelector("#natClearBtn")?.addEventListener("click", clearVegetation);
 
   document.querySelector("#meshSubdivideBtn").addEventListener("click", subdivideSelected);
   document.querySelector("#meshExtrudeBtn").addEventListener("click", extrudeSelected);
   document.querySelector("#meshBevelBtn").addEventListener("click", bevelSelected);
+  document.querySelector("#measureBtn").addEventListener("click", toggleMeasure);
+  document.querySelector("#clearMeasureBtn")?.addEventListener("click", clearMeasurements);
+  document.querySelector("#dropBtn")?.addEventListener("click", dropSelectedToFloor);
+  document.querySelector("#collisionBtn")?.addEventListener("click", toggleCollision);
   document.querySelector("#meshSmoothBtn").addEventListener("click", toggleSmoothShading);
   document.querySelector("#meshFlatBtn").addEventListener("click", toggleSmoothShading);
   document.querySelector("#meshMirrorBtn").addEventListener("click", () => meshMirrorSelected("x"));
@@ -2039,6 +3288,8 @@ function bindUI() {
   renderer.domElement.addEventListener("pointermove", moveLassoSelect);
   renderer.domElement.addEventListener("pointerup", endLassoSelect);
   renderer.domElement.addEventListener("pointermove", updateSelectCursor);
+  renderer.domElement.addEventListener("pointerdown", onMeasurePointer);
+  renderer.domElement.addEventListener("pointerdown", pickSubFeature);
   dom.planCanvas.addEventListener("pointerdown", startPlanSegment);
   dom.planCanvas.addEventListener("pointermove", movePlanSegment);
   dom.planCanvas.addEventListener("pointerup", endPlanSegment);
@@ -2138,13 +3389,22 @@ function bindUI() {
       } else if (event.key === "a") {
         event.preventDefault();
         state.selectedIds = state.objects.map((o) => o.id);
-        const primary = primaryId();
-        const mesh = primary ? findMesh(primary) : null;
-        transformControls.detach();
-        if (mesh && state.selectedIds.length === 1) transformControls.attach(mesh);
-        renderObjectList();
-        renderInspector();
-      }
+const primary = primaryId();
+  const mesh = primary ? findMesh(primary) : null;
+  if (subData && state.subObjectLevel !== "object") {
+    if (subData.mesh !== mesh) {
+      exitSubObjectMode();
+      state.subObjectLevel = "object";
+      document.querySelectorAll("[data-subobj]").forEach(btn => {
+        btn.classList.toggle("active", btn.dataset.subobj === "object");
+      });
+    }
+  }
+  transformControls.detach();
+  if (mesh && state.selectedIds.length === 1) transformControls.attach(mesh);
+  renderObjectList();
+  renderInspector();
+}
     } else if (event.key === "Delete" || event.key === "Backspace") {
       const tag = event.target?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
@@ -2390,6 +3650,13 @@ function bindUI() {
   document.querySelector("#hdrInput").addEventListener("change", importHDR);
   document.querySelector("#aiGenBtn").addEventListener("click", openAIGenerator);
   document.querySelector("#aiGenBtn2").addEventListener("click", openAIGenerator);
+  const logoutBtn = document.querySelector("#logoutBtn");
+  if (logoutBtn) {
+    logoutBtn.addEventListener("click", async () => {
+      try { await fetch("/api/logout", { method: "POST" }); } catch (e) {}
+      window.location.href = "/login";
+    });
+  }
   document.querySelector("#aiModalClose").addEventListener("click", closeAIGenerator);
   document.querySelector("#aiCancelBtn").addEventListener("click", closeAIGenerator);
   document.querySelector("#aiGenerateBtn").addEventListener("click", generateFromPrompt);
@@ -2460,6 +3727,11 @@ function defaultSpec(type, id) {
   if (type === "sphere") return { ...base, scale: { x: 0.8, y: 0.8, z: 0.8 } };
   if (type === "cone") return { ...base, scale: { x: 0.8, y: 1, z: 0.8 } };
   if (type === "cylinder") return { ...base, scale: { x: 0.8, y: 1, z: 0.8 } };
+  if (type === "rock") return { ...base, scale: { x: 1.2, y: 0.8, z: 1.2 }, position: { x: 3.2, y: 0.4, z: -1.6 } };
+  if (type === "water") return { ...base, scale: { x: 3, y: 1, z: 3 }, position: { x: 0, y: 0.08, z: 0 } };
+  if (type === "cloth") return { ...base, scale: { x: 1, y: 1, z: 1 }, position: { x: 0, y: 1.6, z: -0.6 } };
+  if (type === "gas") return { ...base, scale: { x: 1.6, y: 1.4, z: 1.6 }, position: { x: 1.6, y: 0.6, z: 1.8 } };
+  if (type === "particles") return { ...base, scale: { x: 1, y: 1, z: 1 }, position: { x: 0, y: 1.1, z: 0 } };
   return base;
 }
 
@@ -2679,6 +3951,42 @@ function createMesh(spec) {
     mesh = new THREE.Mesh(new THREE.ConeGeometry(0.5, 1, 32), material);
   } else if (spec.type === "cylinder") {
     mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 1, 32), material);
+  } else if (spec.type === "rock") {
+    const geo = new THREE.IcosahedronGeometry(0.6, 1);
+    const np = geo.attributes.position;
+    for (let i = 0; i < np.count; i++) {
+      const d = 0.82 + Math.random() * 0.32;
+      np.setXYZ(i, np.getX(i) * d, np.getY(i) * d, np.getZ(i) * d);
+    }
+    geo.computeVertexNormals();
+    const rockMat = createMaterial(spec.material, { fallbackColor: spec.color });
+    rockMat.flatShading = true;
+    mesh = new THREE.Mesh(geo, rockMat);
+  } else if (spec.type === "water") {
+    const geo = new THREE.PlaneGeometry(2.4, 2.4, 24, 24);
+    geo.rotateX(-Math.PI / 2);
+    spec.anim = spec.anim || { type: "water", amp: 0.045, speed: 1.6 };
+    mesh = new THREE.Mesh(geo, material);
+  } else if (spec.type === "cloth") {
+    const geo = new THREE.PlaneGeometry(2.4, 2.4, 20, 20);
+    spec.anim = spec.anim || { type: "cloth", amp: 0.09, speed: 1.4 };
+    mesh = new THREE.Mesh(geo, material);
+  } else if (spec.type === "gas") {
+    const geo = new THREE.SphereGeometry(1.3, 20, 14);
+    spec.anim = spec.anim || { type: "pulse", amp: 0.35, speed: 0.7 };
+    mesh = new THREE.Mesh(geo, material);
+  } else if (spec.type === "particles") {
+    const n = 240;
+    const positions = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      positions[i * 3] = (Math.random() * 2 - 1) * 1.5;
+      positions[i * 3 + 1] = (Math.random() * 2 - 1) * 1.2 + 0.2;
+      positions[i * 3 + 2] = (Math.random() * 2 - 1) * 1.5;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    spec.anim = spec.anim || { type: "drift", amp: 0.5, speed: 0.6 };
+    mesh = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xffe9a8, size: 0.045, transparent: true, opacity: 0.85, depthWrite: false }));
   } else {
     mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), material);
   }
@@ -2693,6 +4001,12 @@ function createMesh(spec) {
   mesh.userData.id = spec.id;
   mesh.userData.type = spec.type;
   applySpec(mesh, spec);
+  const animType = spec.anim?.type;
+  if (animType === "water" || animType === "cloth") {
+    const p = mesh.geometry.attributes.position;
+    mesh.userData.animBase = new Float32Array(p.array.slice());
+  }
+  mesh.userData.anim = animType ? spec.anim : null;
   return mesh;
 }
 
@@ -2770,6 +4084,7 @@ function subdivideSelected() {
 }
 
 function extrudeSelected() {
+  if (extrudeSelectedFace()) return; // extrusion de face en mode sous-objet
   const m = getSelectedMesh();
   if (!m) return;
   const geo = m.geometry;
@@ -2805,9 +4120,22 @@ function extrudeSelected() {
   pushUndo();
 }
 
-function bevelSelected() {
+function bevelSelected(amount = 0.08) {
   const m = getSelectedMesh();
   if (!m) return;
+  exitSubObjectMode();
+  const res = bevelGeometry(m.geometry, amount);
+  if (res) {
+    m.geometry.dispose?.();
+    m.geometry = res;
+    pushUndo();
+  } else {
+    console.warn("bevelSelected: maillage non fermé (manifold) — bevel par sommet");
+    bevelVertexNudge(m);
+  }
+}
+
+function bevelVertexNudge(m) {
   const geo = m.geometry;
   if (!geo.index) geo.setIndex(geo.attributes.position.array.length / 3);
   const pos = geo.attributes.position;
@@ -2941,8 +4269,12 @@ function createMaterial(key = "paintWarm", options = {}) {
     metalness: spec.metalness ?? 0,
     transparent: spec.transparent || false,
     opacity: spec.opacity ?? 1,
-    side: options.side || THREE.FrontSide,
+    side: options.side || spec.side || THREE.FrontSide,
   });
+  if (spec.blend === "additive") {
+    material.blending = THREE.AdditiveBlending;
+    material.depthWrite = false;
+  }
   if (spec.texture) {
     const texture = getProceduralTexture(key, spec.texture);
     texture.repeat.set(...(options.repeat || [1, 1]));
@@ -3085,6 +4417,11 @@ function materialForType(type, preset) {
   if (type === "wardrobe" || type === "bookshelf") return preset.furniture;
   if (type === "officeChair") return "fabric";
   if (type === "plant" || type === "tree" || type === "flowerPot") return "paintWarm";
+  if (type === "rock") return "rock";
+  if (type === "water") return "water";
+  if (type === "cloth") return "fabric";
+  if (type === "gas") return "smokeGas";
+  if (type === "particles") return "lightWarm";
   return preset.accent;
 }
 
@@ -3130,6 +4467,11 @@ function labelFor(type) {
     sphere: "Sphere",
     cone: "Cone",
     cylinder: "Cylindre",
+    rock: "Roche",
+    water: "Eau fluide",
+    cloth: "Tissu",
+    gas: "Gaz",
+    particles: "Particules",
   }[type] || "Objet";
 }
 
@@ -3175,10 +4517,16 @@ function colorFor(type) {
     sphere: "#4da3ff",
     cone: "#4da3ff",
     cylinder: "#4da3ff",
+    rock: "#7a7a7a",
+    water: "#2f7fb2",
+    cloth: "#bb7d5a",
+    gas: "#9aa4ac",
+    particles: "#ffe9a8",
   }[type] || "#8aa0a6";
 }
 
 function selectFromPointer(event) {
+  if (measureActive) return;
   if (state.selectionMode !== "point") return;
   const bounds = renderer.domElement.getBoundingClientRect();
   const pointer = new THREE.Vector2(
@@ -3426,6 +4774,7 @@ function selectObject(id, additive) {
 }
 
 function findMesh(id) {
+  if (isClusterId(id)) return findClusterAnchor(id);
   return objectGroup.children.find((mesh) => mesh.userData.id === id);
 }
 
@@ -3447,6 +4796,14 @@ function renderObjectList() {
     item.addEventListener("click", (e) => selectObject(object.id, e.shiftKey || e.ctrlKey || e.metaKey));
     dom.objectList.appendChild(item);
   });
+  state.clusters.forEach((cluster) => {
+    const item = document.createElement("button");
+    const sel = state.selectedIds.includes(cluster.id);
+    item.className = `object-item cluster-item${sel ? " active" : ""}`;
+    item.innerHTML = `<span>${escapeHTML(cluster.name)}</span><span class="object-type">${cluster.members.length} obj</span>`;
+    item.addEventListener("click", (e) => selectObject(cluster.id, e.shiftKey || e.ctrlKey || e.metaKey));
+    dom.objectList.appendChild(item);
+  });
   populateSceneTree();
   updateModifierStack();
   updateStatusBar();
@@ -3460,6 +4817,15 @@ function renderInspector() {
     dom.emptyInspector.textContent = `${state.selectedIds.length} objets sélectionnés`;
     dom.emptyInspector.classList.remove("hidden");
     dom.inspector.classList.add("hidden");
+    return;
+  }
+  if (id && isClusterId(id)) {
+    const cluster = findCluster(id);
+    dom.inspector.classList.add("hidden");
+    dom.emptyInspector.classList.remove("hidden");
+    dom.emptyInspector.textContent = cluster
+      ? `${cluster.name} — ${cluster.members.length} objets (bouge le gizmo pour déplacer le groupe)`
+      : "Groupe";
     return;
   }
   dom.emptyInspector.classList.toggle("hidden", Boolean(spec));
@@ -3660,6 +5026,8 @@ function setMode(mode) {
 }
 
 function newProject() {
+  exitSubObjectMode();
+  clearMeasurements();
   state.name = "Projet sans titre";
   state.style = "american";
   state.panoramaDataUrl = "";
@@ -3667,11 +5035,15 @@ function newProject() {
   state.plan = { imageDataUrl: "", imageName: "", scale: 70, tool: "wall", segments: [] };
   state.objects = [];
   state.selectedIds = [];
+  state.clusters = [];
   state.room = { width: 7, depth: 5, height: 3 };
   state.draw = { tool: null, active: false, shapes: [], current: null, scale: 100 };
   state.boolean = { active: false, firstId: null, operation: "subtract" };
   state.deform = { active: false, type: "bend", strength: 0.3, geoBackup: null };
   state.snap = { enabled: false, size: 0.5 };
+  state.cine = { shots: [], objKeys: [], index: -1, playing: false, t: 0, rec: null, loop: false, duration: null };
+  renderCineTimeline();
+  updateCineHead();
   state.selectionMode = "point";
   document.querySelector("#booleanBtn").classList.remove("active");
   document.querySelector("#deformBtn").classList.remove("active");
@@ -3743,6 +5115,7 @@ function toProjectJSON() {
     },
     plan: state.plan,
     objects: state.objects,
+    clusters: state.clusters,
     draw: {
       shapes: state.draw.shapes,
       scale: state.draw.scale,
@@ -3758,6 +5131,7 @@ function toProjectJSON() {
     snap: state.snap,
     showGrid: state.showGrid,
     envPreset: state.envPreset || "",
+    cine: cineData(),
   };
 }
 
@@ -3803,6 +5177,13 @@ function loadProject(project, fileName) {
     updatePanorama();
   }
   (project.objects || []).forEach((object) => addObject(object.type, object));
+  state.clusters = (project.clusters || []).filter((c) => Array.isArray(c.members)).map((c) => ({
+    id: c.id && !findClusterAnchor(c.id) ? c.id : crypto.randomUUID(),
+    name: c.name || "Groupe",
+    members: (c.members || []).filter((m) => state.objects.some((o) => o.id === m)),
+  }));
+  state.clusters = state.clusters.filter((c) => c.members.length > 0);
+  state.clusters.forEach((cluster) => createClusterAnchor(cluster));
 
   if (project.draw?.shapes) {
     state.draw.shapes = project.draw.shapes;
@@ -3848,6 +5229,8 @@ function loadProject(project, fileName) {
     state.envPreset = project.envPreset;
     applyEnvPreset(project.envPreset);
   }
+
+  restoreCineData(project.cine);
 
   updateProjectUI();
 }
@@ -4107,11 +5490,34 @@ function duplicateSelected() {
 
 function deleteSelected() {
   if (!state.selectedIds.length) return;
+  let ids = [...state.selectedIds];
+  const deletedClusters = new Set();
+  ids.forEach((id) => {
+    const cluster = findCluster(id);
+    if (cluster) {
+      deletedClusters.add(cluster.id);
+      cluster.members.forEach((m) => { if (!ids.includes(m)) ids.push(m); });
+    }
+  });
+  exitSubObjectMode();
   pushUndo();
-  state.selectedIds.forEach((id) => {
+  ids.forEach((id) => {
     const mesh = findMesh(id);
     if (mesh) objectGroup.remove(mesh);
     state.objects = state.objects.filter((object) => object.id !== id);
+  });
+  state.clusters = state.clusters.filter((cluster) => {
+    const anchor = findClusterAnchor(cluster.id);
+    if (deletedClusters.has(cluster.id)) {
+      if (anchor) objectGroup.remove(anchor);
+      return false;
+    }
+    cluster.members = cluster.members.filter((m) => !ids.includes(m));
+    if (!cluster.members.length) {
+      if (anchor) objectGroup.remove(anchor);
+      return false;
+    }
+    return true;
   });
   state.selectedIds = [];
   transformControls.detach();
@@ -4700,15 +6106,698 @@ function applyDeformToSelected(type) {
   target.geometry = geo;
 }
 
+/* ============================================================
+   Mesures et cotes 3D
+   ============================================================ */
+
+function toggleMeasure() {
+  measureActive = !measureActive;
+  const btn = document.querySelector("#measureBtn");
+  if (btn) btn.classList.toggle("active", measureActive);
+  const panel = document.querySelector("#measurePanel");
+  if (panel) panel.classList.toggle("hidden", !measureActive);
+  if (!measureActive) {
+    measurePoints = [];
+    renderMeasurePreview();
+  }
+  updateStatusBar();
+}
+
+function raycastWorldPoint(event, includeRooms = false) {
+  const bounds = renderer.domElement.getBoundingClientRect();
+  const pointer = new THREE.Vector2(
+    ((event.clientX - bounds.left) / bounds.width) * 2 - 1,
+    -((event.clientY - bounds.top) / bounds.height) * 2 + 1
+  );
+  const raycaster = new THREE.Raycaster();
+  raycaster.setFromCamera(pointer, camera);
+  const targets = includeRooms ? [objectGroup, roomGroup, landscapeGroup] : [objectGroup];
+  const hits = raycaster.intersectObjects(targets, true);
+  if (hits.length) return hits[0].point.clone();
+  const ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  const fallback = new THREE.Vector3();
+  if (raycaster.ray.intersectPlane(ground, fallback)) return fallback;
+  return null;
+}
+
+function initMeasureGroup() {
+  if (measureGroup) return;
+  measureGroup = new THREE.Group();
+  measureGroup.name = "_measurements";
+  scene.add(measureGroup);
+}
+
+function onMeasurePointer(event) {
+  if (!measureActive || event.button !== 0) return;
+  const tag = event.target?.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || tag === "BUTTON") return;
+  const point = raycastWorldPoint(event, true);
+  if (!point) return;
+  measurePoints.push(point);
+  if (measurePoints.length === 2) {
+    commitMeasurement(measurePoints[0], measurePoints[1]);
+    measurePoints = [];
+  }
+  renderMeasurePreview();
+}
+
+function commitMeasurement(p1, p2) {
+  initMeasureGroup();
+  const group = new THREE.Group();
+  const lineMat = new THREE.LineBasicMaterial({ color: 0x35b49c });
+  const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([p1, p2]), lineMat);
+  group.add(line);
+  const sphereMat = new THREE.MeshBasicMaterial({ color: 0x35b49c });
+  for (const p of [p1, p2]) {
+    const sph = new THREE.Mesh(new THREE.SphereGeometry(0.05, 12, 8), sphereMat);
+    sph.position.copy(p);
+    group.add(sph);
+  }
+  const dist = p1.distanceTo(p2);
+  const hDelta = Math.abs(p1.y - p2.y);
+  const horizontal = new THREE.Vector3(p1.x, 0, p1.z).distanceTo(new THREE.Vector3(p2.x, 0, p2.z));
+  const mid = p1.clone().add(p2).multiplyScalar(0.5);
+  const sprite = makeMeasureSprite(`d = ${dist.toFixed(2)} m\nH ${horizontal.toFixed(2)} m · h ${hDelta.toFixed(2)} m`);
+  sprite.position.set(mid.x, mid.y + 0.4, mid.z);
+  group.add(sprite);
+  group.userData.isMeasure = true;
+  measureGroup.add(group);
+  MEASURE_LIST.push({ p1, p2, group });
+  renderMeasurementsPanel();
+}
+
+function makeMeasureSprite(text) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 512;
+  canvas.height = 100;
+  const ctx = canvas.getContext("2d");
+  const lines = text.split("\n");
+  ctx.fillStyle = "rgba(10,14,16,0.75)";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = "#35b49c";
+  ctx.lineWidth = 3;
+  ctx.strokeRect(1.5, 1.5, canvas.width - 3, canvas.height - 3);
+  ctx.fillStyle = "#d9ece6";
+  ctx.font = "bold 30px system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  lines.forEach((l, i) => ctx.fillText(l, canvas.width / 2, 26 + i * 36));
+  const mat = new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true, depthTest: false });
+  const sprite = new THREE.Sprite(mat);
+  sprite.scale.set(1.15, 0.25, 1);
+  return sprite;
+}
+
+function renderMeasurePreview() {
+  if (!measureGroup) return;
+  measureGroup.children.filter((c) => c.userData.preview).forEach((c) => measureGroup.remove(c));
+  if (measurePoints.length === 1) {
+    const sph = new THREE.Mesh(new THREE.SphereGeometry(0.05, 12, 8), new THREE.MeshBasicMaterial({ color: 0x35b49c }));
+    sph.position.copy(measurePoints[0]);
+    sph.userData.preview = true;
+    measureGroup.add(sph);
+  }
+}
+
+function renderMeasurementsPanel() {
+  const el = document.querySelector("#measureList");
+  if (!el) return;
+  el.innerHTML = MEASURE_LIST.map((m, i) =>
+    `<button class="measure-item" data-measure-idx="${i}">Mesure ${i + 1} · ${m.p1.distanceTo(m.p2).toFixed(2)} m</button>`
+  ).join("");
+  el.querySelectorAll(".measure-item").forEach((b) => {
+    b.addEventListener("click", () => removeMeasurement(Number(b.dataset.measureIdx)));
+  });
+}
+
+function removeMeasurement(idx) {
+  const m = MEASURE_LIST[idx];
+  if (!m) return;
+  measureGroup.remove(m.group);
+  m.group.traverse((c) => {
+    if (c.geometry) c.geometry.dispose();
+    if (c.material?.map) c.material.map.dispose();
+    if (c.material) c.material.dispose();
+  });
+  MEASURE_LIST.splice(idx, 1);
+  renderMeasurementsPanel();
+}
+
+function clearMeasurements() {
+  while (MEASURE_LIST.length) removeMeasurement(0);
+}
+
+/* ============================================================
+   Physique simple : chute au sol + collision avec les murs
+   ============================================================ */
+
+function dropSelectedToFloor() {
+  if (!state.selectedIds.length) { setStatusInfo("Aucun objet sélectionné"); return; }
+  pushUndo();
+  state.selectedIds.forEach((id) => {
+    const mesh = findMesh(id);
+    if (!mesh) return;
+    const box = new THREE.Box3().setFromObject(mesh);
+    const delta = -box.min.y;
+    if (Math.abs(delta) > 0.001) {
+      mesh.position.y += delta;
+      syncObjectFromMesh(mesh);
+    }
+  });
+  renderInspector();
+  renderObjectList();
+  setStatusInfo("Objets déposés au sol");
+}
+
+function getWallBoxes(excludeId) {
+  const boxes = [];
+  roomGroup.children.forEach((child) => {
+    if (!child.isMesh) return;
+    const b = new THREE.Box3().setFromObject(child);
+    if (b.max.y > 0.02) boxes.push(b);
+  });
+  objectGroup.children.forEach((child) => {
+    if (!child.userData.id || child.userData.id === excludeId) return;
+    const t = child.userData.type;
+    if (t !== "wall" && t !== "window" && t !== "door") return;
+    boxes.push(new THREE.Box3().setFromObject(child));
+  });
+  return boxes;
+}
+
+function collisionClamp(mesh) {
+  if (!state.physics.collision) return;
+  const box = new THREE.Box3().setFromObject(mesh);
+  const walls = getWallBoxes(mesh.userData.id);
+  for (const wall of walls) {
+    if (!box.intersectsBox(wall)) continue;
+    const dxMin = wall.min.x - box.max.x;
+    const dxMax = wall.max.x - box.min.x;
+    const dzMin = wall.min.z - box.max.z;
+    const dzMax = wall.max.z - box.min.z;
+    const pushX = Math.abs(dxMin) < Math.abs(dxMax) ? dxMin : dxMax;
+    const pushZ = Math.abs(dzMin) < Math.abs(dzMax) ? dzMin : dzMax;
+    if (Math.abs(pushX) < Math.abs(pushZ)) mesh.position.x += pushX;
+    else mesh.position.z += pushZ;
+  }
+}
+
+function toggleCollision() {
+  state.physics.collision = !state.physics.collision;
+  const btn = document.querySelector("#collisionBtn");
+  if (btn) btn.classList.toggle("active", state.physics.collision);
+  updateStatusBar();
+}
+
+/* ============================================================
+   Édition sous-objet (Vertex / Edge / Face)
+   ============================================================ */
+
+function initSubHelpers() {
+  if (subHelperGroup) return;
+  subHelperGroup = new THREE.Group();
+  subHelperGroup.name = "_subHelpers";
+  scene.add(subHelperGroup);
+  subProxy = new THREE.Object3D();
+  subProxy.userData.subMarker = true;
+  scene.add(subProxy);
+}
+
+function ensureIndexedGeometry(geo) {
+  if (geo.index) return geo;
+  const pos = geo.attributes.position;
+  const seen = new Map();
+  const verts = [];
+  const order = [];
+  const p = new Array(3);
+  for (let i = 0; i < pos.count; i++) {
+    p[0] = pos.getX(i); p[1] = pos.getY(i); p[2] = pos.getZ(i);
+    const k = `${p[0].toFixed(5)},${p[1].toFixed(5)},${p[2].toFixed(5)}`;
+    if (seen.has(k)) order.push(seen.get(k));
+    else {
+      seen.set(k, verts.length / 3);
+      verts.push(p[0], p[1], p[2]);
+      order.push(verts.length / 3 - 1);
+    }
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute("position", new THREE.BufferAttribute(new Float32Array(verts), 3));
+  out.setIndex(order);
+  out.computeVertexNormals();
+  return out;
+}
+
+function enterSubMode(level) {
+  initSubHelpers();
+  exitSubObjectMode(false);
+  const mesh = getSelectedMesh();
+  if (!mesh) { setStatusInfo("Sélectionne d'abord un objet 3D"); return; }
+  mesh.geometry = ensureIndexedGeometry(mesh.geometry);
+  subData = buildSubData(mesh, level);
+  rebuildSubMarkers();
+  setStatusInfo(`Mode ${level}: clique sur le maillage pour sélectionner, puis déplace avec W`);
+  transformControls.setTranslationSnap(null);
+}
+
+function buildSubData(mesh, mode) {
+  const geo = mesh.geometry;
+  const pos = geo.attributes.position;
+  const idxArr = geo.index.array;
+  const uidOf = new Map();
+  const unique = [];
+  const order = [];
+  const p = new Array(3);
+  for (let i = 0; i < pos.count; i++) {
+    p[0] = pos.getX(i); p[1] = pos.getY(i); p[2] = pos.getZ(i);
+    const k = `${p[0].toFixed(5)},${p[1].toFixed(5)},${p[2].toFixed(5)}`;
+    if (uidOf.has(k)) order.push(uidOf.get(k));
+    else {
+      uidOf.set(k, unique.length);
+      unique.push({ pos: new THREE.Vector3(p[0], p[1], p[2]), idxs: [i] });
+      order.push(unique.length - 1);
+    }
+  }
+  const tris = [];
+  for (let i = 0; i < idxArr.length; i += 3) {
+    const t = [order[idxArr[i]], order[idxArr[i + 1]], order[idxArr[i + 2]]];
+    tris.push(t);
+    t.forEach((u) => {
+      const rec = unique[u];
+      const ui = idxArr[i + (t.indexOf(u))];
+      if (!rec.idxs.includes(ui)) rec.idxs.push(ui);
+    });
+  }
+  const edges = [];
+  const edgeByKey = new Map();
+  tris.forEach((t, fi) => {
+    for (let e = 0; e < 3; e++) {
+      const a = t[e], b = t[(e + 1) % 3];
+      const keyEdge = a < b ? `${a}:${b}` : `${b}:${a}`;
+      if (!edgeByKey.has(keyEdge)) {
+        edgeByKey.set(keyEdge, edges.length);
+        edges.push({ a, b, idx: edges.length, key: keyEdge });
+      }
+    }
+  });
+  return { mesh, mode, pos, unique, tris, edges, edgeByKey, selected: null, selType: null, dirty: false };
+}
+
+function featureWorldPosition() {
+  if (!subData || subData.selected == null) return null;
+  const { mesh, unique, tris, edges, selected, selType } = subData;
+  const local = new THREE.Vector3();
+  if (selType === "vertex") local.copy(unique[selected].pos);
+  else if (selType === "edge") {
+    const ed = edges[selected];
+    local.addVectors(unique[ed.a].pos, unique[ed.b].pos).multiplyScalar(0.5);
+  } else {
+    const tri = tris[selected];
+    tri.forEach(u => local.add(unique[u].pos));
+    local.divideScalar(3);
+  }
+  return mesh.localToWorld(local);
+}
+
+function attachSubProxy() {
+  if (!subData || subData.selected == null) return;
+  const worldPos = featureWorldPosition();
+  if (!worldPos) return;
+  subProxy.position.copy(worldPos);
+  subProxyStart = worldPos.clone();
+  transformControls.attach(subProxy);
+  transformControls.mode = "translate";
+}
+
+function distPointToSegment(p, a, b) {
+  const ab = b.clone().sub(a);
+  const ap = p.clone().sub(a);
+  const t = Math.max(0, Math.min(1, ap.dot(ab) / (ab.lengthSq() || 1)));
+  return p.distanceTo(a.clone().add(ab.multiplyScalar(t)));
+}
+
+function pickSubFeature(event) {
+  if (!subData) return;
+  if (transformControls.object?.userData.subMarker) return; // gizmo en cours sur une feature
+  const mesh = subData.mesh;
+  if (!mesh.visible) return;
+  const bounds = renderer.domElement.getBoundingClientRect();
+  const pointer = new THREE.Vector2(
+    ((event.clientX - bounds.left) / bounds.width) * 2 - 1,
+    -((event.clientY - bounds.top) / bounds.height) * 2 + 1
+  );
+  const raycaster = new THREE.Raycaster();
+  raycaster.setFromCamera(pointer, camera);
+  const hits = raycaster.intersectObject(mesh, false);
+  if (!hits.length) return;
+  const hit = hits[0];
+  const lp = mesh.worldToLocal(hit.point.clone());
+  const faceIndex = hit.faceIndex;
+  const { unique, tris, pos } = subData;
+  const mode = subData.mode;
+  if (mode === "face") {
+    subData.selected = Math.floor(faceIndex / 3);
+    subData.selType = "face";
+  } else if (mode === "vertex") {
+    const tri = tris[Math.floor(faceIndex / 3)];
+    let best = tri[0], bd = Infinity;
+    for (const u of tri) {
+      const d = unique[u].pos.distanceTo(lp);
+      if (d < bd) { bd = d; best = u; }
+    }
+    subData.selected = best;
+    subData.selType = "vertex";
+  } else {
+    const tri = tris[Math.floor(faceIndex / 3)];
+    let bestKey = null, bd = Infinity;
+    for (let e = 0; e < 3; e++) {
+      const a = tri[e], b = tri[(e + 1) % 3];
+      const key = a < b ? `${a}:${b}` : `${b}:${a}`;
+      const rec = subData.edges[subData.edgeByKey.get(key)];
+      const d = distPointToSegment(lp, unique[rec.a].pos, unique[rec.b].pos);
+      if (d < bd) { bd = d; bestKey = key; }
+    }
+    subData.selected = subData.edgeByKey.get(bestKey);
+    subData.selType = "edge";
+  }
+  attachSubProxy();
+  rebuildSubMarkers();
+}
+
+function applySubObjectDrag() {
+  if (!subData || subData.selected == null || !subProxyStart) return;
+  const { mesh, unique, tris, edges, selected, selType } = subData;
+  const worldPos = subProxy.position;
+  const deltaWorld = worldPos.clone().sub(subProxyStart);
+  const a = mesh.worldToLocal(deltaWorld.clone());
+  const b = mesh.worldToLocal(new THREE.Vector3(0, 0, 0));
+  const deltaLocal = a.sub(b);
+  subProxyStart.copy(worldPos);
+  const pos = mesh.geometry.attributes.position;
+  const each = [];
+  if (selType === "vertex") each.push(selected);
+  else if (selType === "edge") each.push(edges[selected].a, edges[selected].b);
+  else each.push(...tris[selected]);
+  for (const u of each) {
+    unique[u].pos.add(deltaLocal);
+    for (const i of unique[u].idxs) {
+      pos.setXYZ(i, unique[u].pos.x, unique[u].pos.y, unique[u].pos.z);
+    }
+  }
+  pos.needsUpdate = true;
+  mesh.geometry.computeVertexNormals();
+  rebuildSubMarkers();
+}
+
+function rebuildSubMarkers() {
+  if (!subHelperGroup || !subData) return;
+  const { mesh, mode, unique, tris, edges, selected } = subData;
+  subHelperGroup.clear();
+  if (unique.length > 4000) return;
+  const dot = new THREE.MeshBasicMaterial({ color: 0x35b49c, transparent: true, opacity: 0.9 });
+  const selDot = new THREE.MeshBasicMaterial({ color: 0xffb74d });
+  const world = new THREE.Vector3();
+  const addDot = (localPos, sel, r) => {
+    const s = new THREE.Mesh(new THREE.SphereGeometry(r, 10, 8), sel ? selDot : dot);
+    s.position.copy(mesh.localToWorld(localPos.clone()));
+    s.userData.subMarker = true;
+    subHelperGroup.add(s);
+  };
+  if (mode === "vertex") {
+    unique.forEach((u, i) => addDot(u.pos, i === selected, i === selected ? 0.12 : 0.05));
+  } else if (mode === "edge") {
+    edges.forEach((ed, i) => {
+      const mid = unique[ed.a].pos.clone().add(unique[ed.b].pos).multiplyScalar(0.5);
+      addDot(mid, i === selected, i === selected ? 0.12 : 0.05);
+    });
+  } else {
+    tris.forEach((t, i) => {
+      const c = new THREE.Vector3();
+      t.forEach(u => c.add(unique[u].pos));
+      c.divideScalar(3);
+      addDot(c, i === selected, i === selected ? 0.16 : 0.07);
+    });
+  }
+}
+
+function exitSubObjectMode(clearButtons = true) {
+  if (subHelperGroup) subHelperGroup.clear();
+  if (transformControls.object?.userData.subMarker) transformControls.detach();
+  subData = null;
+  subProxyStart = null;
+  if (clearButtons && state.subObjectLevel !== "object") {
+    state.subObjectLevel = "object";
+    document.querySelectorAll("[data-subobj]").forEach(btn => {
+      btn.classList.toggle("active", btn.dataset.subobj === "object");
+    });
+  }
+}
+
+function extrudeSelectedFace(dist = 0.3) {
+  if (!subData || subData.selType !== "face" || subData.selected == null) return false;
+  const { mesh, unique, tris, selected } = subData;
+  const geo = mesh.geometry;
+  const oldPos = geo.attributes.position;
+  const count = oldPos.count;
+  const tri = tris[selected];
+  const a = unique[tri[0]].pos, b = unique[tri[1]].pos, c = unique[tri[2]].pos;
+  const ab = b.clone().sub(a), ac = c.clone().sub(a);
+  const normal = ab.cross(ac).normalize();
+  const newArr = new Float32Array((count + 3) * 3);
+  newArr.set(oldPos.array);
+  const capIdx = [];
+  tri.forEach((u, i) => {
+    const q = unique[u].pos;
+    const bi = (count + i) * 3;
+    newArr[bi] = q.x + normal.x * dist;
+    newArr[bi + 1] = q.y + normal.y * dist;
+    newArr[bi + 2] = q.z + normal.z * dist;
+    capIdx.push(count + i);
+  });
+  geo.setAttribute("position", new THREE.BufferAttribute(newArr, 3));
+  const idx = [...geo.index.array];
+  idx.push(capIdx[0], capIdx[1], capIdx[2]);
+  for (let e = 0; e < 3; e++) {
+    const oa = unique[tri[e]].idxs[0];
+    const ob = unique[tri[(e + 1) % 3]].idxs[0];
+    const na = capIdx[e], nb = capIdx[(e + 1) % 3];
+    idx.push(oa, ob, na, ob, nb, na);
+  }
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  const oldTris = tris.length;
+  pushUndo();
+  subData = buildSubData(mesh, "face");
+  subData.selected = oldTris;
+  subData.selType = "face";
+  attachSubProxy();
+  rebuildSubMarkers();
+  return true;
+}
+
+/* ============================================================
+   Bevel réel (chanfrein) sur maillage fermé
+   ============================================================ */
+
+function faceNormalArr(a, b, c) {
+  const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+  const ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+  let nx = ab[1] * ac[2] - ab[2] * ac[1];
+  let ny = ab[2] * ac[0] - ab[0] * ac[2];
+  let nz = ab[0] * ac[1] - ab[1] * ac[0];
+  const len = Math.hypot(nx, ny, nz) || 1;
+  return [nx / len, ny / len, nz / len];
+}
+
+function bevelGeometry(srcGeo, amount) {
+  if (!srcGeo.index) srcGeo.setIndex(Array.from({ length: srcGeo.attributes.position.count }, (_, i) => i));
+  const pos = srcGeo.attributes.position;
+  const srcIdx = srcGeo.index.array;
+  const uidOf = new Map();
+  const unique = [];
+  const order = [];
+  const p = new Array(3);
+  for (let i = 0; i < pos.count; i++) {
+    p[0] = pos.getX(i); p[1] = pos.getY(i); p[2] = pos.getZ(i);
+    const k = `${p[0].toFixed(6)},${p[1].toFixed(6)},${p[2].toFixed(6)}`;
+    if (uidOf.has(k)) order.push(uidOf.get(k));
+    else { uidOf.set(k, unique.length); unique.push([p[0], p[1], p[2]]); order.push(unique.length - 1); }
+  }
+  const tris = [];
+  for (let i = 0; i < srcIdx.length; i += 3) {
+    tris.push([order[srcIdx[i]], order[srcIdx[i + 1]], order[srcIdx[i + 2]]]);
+  }
+  const fnorm = tris.map(t => faceNormalArr(unique[t[0]], unique[t[1]], unique[t[2]]));
+  const centroid = tris.map(t => [
+    (unique[t[0]][0] + unique[t[1]][0] + unique[t[2]][0]) / 3,
+    (unique[t[0]][1] + unique[t[1]][1] + unique[t[2]][1]) / 3,
+    (unique[t[0]][2] + unique[t[1]][2] + unique[t[2]][2]) / 3,
+  ]);
+  const edgeMap = new Map();
+  const incident = unique.map(() => []);
+  tris.forEach((t, fi) => {
+    for (let e = 0; e < 3; e++) {
+      incident[t[e]].push(fi);
+      const a = t[e], b = t[(e + 1) % 3];
+      const key = a < b ? `${a}:${b}` : `${b}:${a}`;
+      if (!edgeMap.has(key)) edgeMap.set(key, { a, b, tris: [] });
+      edgeMap.get(key).tris.push(fi);
+    }
+  });
+  for (const ed of edgeMap.values()) if (ed.tris.length !== 2) return null; // non manifold
+  const parent = tris.map((_, i) => i);
+  const find = i => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+  const union = (i, j) => { parent[find(i)] = find(j); };
+  edgeMap.forEach(ed => {
+    const f1 = ed.tris[0], f2 = ed.tris[1];
+    const n1 = fnorm[f1], n2 = fnorm[f2];
+    if (n1[0] * n2[0] + n1[1] * n2[1] + n1[2] * n2[2] > 0.9999) union(f1, f2);
+  });
+  const groups = new Map();
+  const groupOf = tris.map((_, fi) => {
+    const r = find(fi);
+    if (!groups.has(r)) groups.set(r, []);
+    groups.get(r).push(fi);
+    return r;
+  });
+  const k = Math.max(0.03, Math.min(0.4, amount));
+  // point d'insertion d'un sommet dans un groupe de faces coplanaires
+  const cutPt = new Map();
+  const ins = (u, g) => {
+    const key = `${u}:${g}`;
+    if (cutPt.has(key)) return cutPt.get(key);
+    const uu = unique[u];
+    let ax = 0, ay = 0, az = 0, cnt = 0;
+    groups.get(g).forEach(fi => {
+      if (tris[fi].indexOf(u) < 0) return;
+      ax += centroid[fi][0]; ay += centroid[fi][1]; az += centroid[fi][2]; cnt++;
+    });
+    const pt = [uu[0] + (ax / cnt - uu[0]) * k, uu[1] + (ay / cnt - uu[1]) * k, uu[2] + (az / cnt - uu[2]) * k];
+    cutPt.set(key, pt);
+    return pt;
+  };
+  const outPts = [];
+  const outTris = [];
+  const outIdx = new Map();
+  const addVec = a3 => {
+    const idx = outPts.length / 3;
+    outPts.push(a3[0], a3[1], a3[2]);
+    return idx;
+  };
+  // chaque point de coupe est partagé entre bouchons, bandes et coins (maillage fermé)
+  const vIdx = (u, g) => {
+    const key = `${u}:${g}`;
+    if (outIdx.has(key)) return outIdx.get(key);
+    const idx = addVec(ins(u, g));
+    outIdx.set(key, idx);
+    return idx;
+  };
+  // bouchons de faces (conservent l'orientation d'origine)
+  tris.forEach((t, ft) => {
+    const g = groupOf[ft];
+    const a = vIdx(t[0], g), b = vIdx(t[1], g), c = vIdx(t[2], g);
+    outTris.push(a, b, c);
+  });
+  // bandes de chanfrein entre faces voisines non coplanaires
+  edgeMap.forEach(ed => {
+    const f1 = ed.tris[0], f2 = ed.tris[1];
+    const g1 = groupOf[f1], g2 = groupOf[f2];
+    if (g1 === g2) return;
+    const A = vIdx(ed.a, g1), B = vIdx(ed.b, g1), C = vIdx(ed.b, g2), D = vIdx(ed.a, g2);
+    const pA = ins(ed.a, g1), pB = ins(ed.b, g1), pD = ins(ed.a, g2);
+    const dx = (pB[0] - pA[0]) * (pD[1] - pA[1]) - (pB[1] - pA[1]) * (pD[0] - pA[0]);
+    const dy = (pB[2] - pA[2]) * (pD[0] - pA[0]) - (pB[0] - pA[0]) * (pD[2] - pA[2]);
+    const dz = (pB[0] - pA[0]) * (pD[2] - pA[2]) - (pB[2] - pA[2]) * (pD[0] - pA[0]);
+    const n1 = fnorm[f1], n2 = fnorm[f2];
+    const ndot = dx * (n1[0] + n2[0]) + dy * (n1[1] + n2[1]) + dz * (n1[2] + n2[2]);
+    if (ndot >= 0) outTris.push(A, B, D, B, C, D);
+    else outTris.push(A, D, B, B, D, C);
+  });
+  function perp(v) {
+    let rx = 0, ry = 0, rz = 0;
+    if (Math.abs(v[0]) < 0.9) { rx = 1; } else { ry = 1; }
+    const px = ry * v[2] - rz * v[1];
+    const py = rz * v[0] - rx * v[2];
+    const pz = rx * v[1] - ry * v[0];
+    const l = Math.hypot(px, py, pz) || 1;
+    return [px / l, py / l, pz / l];
+  }
+  // fermeture des coins (cône des faces incidentes)
+  unique.forEach((u, i) => {
+    const fs = incident[i];
+    if (fs.length < 3) return;
+    let dx = 0, dy = 0, dz = 0;
+    fs.forEach(f => { dx += fnorm[f][0]; dy += fnorm[f][1]; dz += fnorm[f][2]; });
+    const dl = Math.hypot(dx, dy, dz) || 1;
+    const d3 = [dx / dl, dy / dl, dz / dl];
+    const tA = perp(d3);
+    const tB = [d3[1] * tA[2] - d3[2] * tA[1], d3[2] * tA[0] - d3[0] * tA[2], d3[0] * tA[1] - d3[1] * tA[0]];
+    const uu = unique[i];
+    const seen = new Set();
+    const gs = [];
+    fs.forEach(f => {
+      const g = groupOf[f];
+      if (seen.has(g)) return;
+      seen.add(g);
+      gs.push(g);
+    });
+    if (gs.length < 3) return;
+    const pairs = gs.map(g => ({ g, pt: ins(i, g) }));
+    pairs.sort((m, n) => {
+      const v1 = [m.pt[0] - uu[0], m.pt[1] - uu[1], m.pt[2] - uu[2]];
+      const v2 = [n.pt[0] - uu[0], n.pt[1] - uu[1], n.pt[2] - uu[2]];
+      const a1 = v1[0] * tA[0] + v1[1] * tA[1] + v1[2] * tA[2];
+      const b1 = v1[0] * tB[0] + v1[1] * tB[1] + v1[2] * tB[2];
+      const a2 = v2[0] * tA[0] + v2[1] * tA[1] + v2[2] * tA[2];
+      const b2 = v2[0] * tB[0] + v2[1] * tB[1] + v2[2] * tB[2];
+      return Math.atan2(b1, a1) - Math.atan2(b2, a2);
+    });
+    const n0 = faceNormalArr(pairs[0].pt, pairs[1].pt, pairs[2].pt);
+    const outward = n0[0] * d3[0] + n0[1] * d3[1] + n0[2] * d3[2] >= 0;
+    const idxs = pairs.map(p => vIdx(i, p.g));
+    for (let oi = 1; oi < idxs.length - 1; oi++) {
+      if (outward) outTris.push(idxs[0], idxs[oi], idxs[oi + 1]);
+      else outTris.push(idxs[0], idxs[oi + 1], idxs[oi]);
+    }
+  });
+  // passe finale : normaliser l'orientation (extérieur) de chaque triangle
+  let ccx = 0, ccy = 0, ccz = 0;
+  for (let oi = 0; oi < outPts.length; oi += 3) { ccx += outPts[oi]; ccy += outPts[oi + 1]; ccz += outPts[oi + 2]; }
+  const ccn = outPts.length / 3;
+  ccx /= ccn; ccy /= ccn; ccz /= ccn;
+  for (let oi = 0; oi < outTris.length; oi += 3) {
+    const a = outTris[oi], b = outTris[oi + 1], c = outTris[oi + 2];
+    const p0 = [outPts[a * 3] - ccx, outPts[a * 3 + 1] - ccy, outPts[a * 3 + 2] - ccz];
+    const p1 = [outPts[b * 3] - ccx, outPts[b * 3 + 1] - ccy, outPts[b * 3 + 2] - ccz];
+    const p2 = [outPts[c * 3] - ccx, outPts[c * 3 + 1] - ccy, outPts[c * 3 + 2] - ccz];
+    const u = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+    const v = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
+    const nx = u[1] * v[2] - u[2] * v[1];
+    const ny = u[2] * v[0] - u[0] * v[2];
+    const nz = u[0] * v[1] - u[1] * v[0];
+    const mx = (p0[0] + p1[0] + p2[0]) / 3, my = (p0[1] + p1[1] + p2[1]) / 3, mz = (p0[2] + p1[2] + p2[2]) / 3;
+    if (nx * mx + ny * my + nz * mz < 0) {
+      outTris[oi + 1] = c;
+      outTris[oi + 2] = b;
+    }
+  }
+  const outGeo = new THREE.BufferGeometry();
+  outGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(outPts), 3));
+  outGeo.setIndex(outTris);
+  outGeo.computeVertexNormals();
+  return outGeo;
+}
+
 /* ---- Undo / Redo ---- */
 function pushUndo() {
   const u = state.undo;
   const snapshot = {
     objects: structuredClone(state.objects),
+    clusters: structuredClone(state.clusters),
     room: structuredClone(state.room),
     style: state.style,
     plan: structuredClone(state.plan),
     draw: { tool: null, active: false, shapes: structuredClone(state.draw.shapes), current: null, scale: state.draw.scale },
+    cine: cineData(),
   };
 
   if (u.index < u.history.length - 1) {
@@ -4734,22 +6823,26 @@ function redo() {
 }
 
 function restoreSnapshot(snapshot) {
+  exitSubObjectMode();
   objectGroup.clear();
   transformControls.detach();
   state.selectedIds = [];
 
   state.objects = structuredClone(snapshot.objects);
+  state.clusters = structuredClone(snapshot.clusters || []);
   state.room = structuredClone(snapshot.room);
   state.style = snapshot.style;
   state.plan = structuredClone(snapshot.plan);
   state.draw.shapes = structuredClone(snapshot.draw.shapes);
   state.draw.current = null;
+  restoreCineData(snapshot.cine);
 
   buildRoom();
   state.objects.forEach((spec) => {
     const mesh = createMesh(spec);
     objectGroup.add(mesh);
   });
+  state.clusters.forEach((cluster) => createClusterAnchor(cluster));
 
   document.querySelector("#roomWidth").value = state.room.width;
   document.querySelector("#roomDepth").value = state.room.depth;
@@ -5260,6 +7353,10 @@ function updateDrawPipeline() {
   });
 }
 
+function setStatusInfo(msg) {
+  if (dom.statusInfo) dom.statusInfo.textContent = msg;
+}
+
 function updateStatusBar() {
   const mode = state.draw.active ? `Draw: ${state.draw.tool}` :
     state.boolean.active ? `Boolean: ${state.boolean.operation}` :
@@ -5271,13 +7368,18 @@ function updateStatusBar() {
 
   const id = primaryId();
   if (id) {
-    const spec = findSpec(id);
-    const mesh = findMesh(id);
-    const verts = mesh?.geometry?.attributes?.position?.count || 0;
-    const info = state.selectedIds.length > 1
-      ? `${state.selectedIds.length} objets sélectionnés`
-      : `${spec?.name || "?"} (${verts} verts)`;
-    dom.statusInfo.textContent = info;
+    if (isClusterId(id)) {
+      const cluster = findCluster(id);
+      dom.statusInfo.textContent = cluster ? `${cluster.name} (${cluster.members.length} objets groupés)` : "Groupe";
+    } else {
+      const spec = findSpec(id);
+      const mesh = findMesh(id);
+      const verts = mesh?.geometry?.attributes?.position?.count || 0;
+      const info = state.selectedIds.length > 1
+        ? `${state.selectedIds.length} objets sélectionnés`
+        : `${spec?.name || "?"} (${verts} verts)`;
+      dom.statusInfo.textContent = info;
+    }
   } else {
     dom.statusInfo.textContent = state.objects.length
       ? `${state.objects.length} objets dans la scène`
@@ -5285,12 +7387,15 @@ function updateStatusBar() {
   }
 
   let hint = "";
-  if (state.draw.active) hint = "Clique et glisse dans la vue pour dessiner";
+  if (state.cine.playing) hint = "Lecture cinématique · bouton Lire pour arrêter";
+  else if (measureActive) hint = "Clique 2 points dans la scène pour créer une cote";
+  else if (state.draw.active) hint = "Clique et glisse dans la vue pour dessiner";
   else if (state.boolean.active && state.boolean.firstId) hint = "Clique le second objet pour l'opération booléenne";
   else if (state.boolean.active) hint = "Clique le premier objet pour le booléen";
   else if (state.deform.active) hint = "Clique Deform pour cycler Bend / Twist / Taper";
   else if (state.landscape.mesh) hint = "Clique et glisse sur le terrain pour sculpter";
   else if (state.snap.enabled) hint = "Snapping actif";
+  else if (state.subObjectLevel !== "object") hint = "Clique le maillage pour sélectionner un élément · Extrude en mode face · Q pour désélectionner";
   else if (state.quadView) hint = "Alt+W: vue unique · Clique une étiquette pour activer la vue";
   else hint = "Q: sélection · W: déplacer · E: tourner · R: échelle · Alt+W: quad view";
   dom.statusHint.textContent = hint;
@@ -5330,6 +7435,14 @@ function resize() {
 
 function animate() {
   requestAnimationFrame(animate);
+  const aNow = performance.now();
+  const dt = Math.min(0.05, (aNow - window.__lastAnimT) / 1000);
+  window.__lastAnimT = aNow;
+  if (state.anim.playing && !state.cine.playing) {
+    state.anim.t += dt;
+    updateSceneAnimation(dt);
+  }
+  if (state.cine.playing) cineTick(dt);
   controls.update();
   panoControls.update();
   if (quadViewActive && vpFrontCam && vpTopCam && vpLeftCam) {

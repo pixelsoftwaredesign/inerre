@@ -1,6 +1,16 @@
 const MAIN_SITE = "https://pixelsoftwaredesign.onrender.com";
 
-const PUBLIC_PATHS = ["/login", "/login/", "/api/login", "/api/logout", "/api/health", "/favicon.ico", "/styles.css"];
+const PUBLIC_PATHS = ["/login", "/login/", "/api/login", "/api/logout", "/api/health"];
+
+const AUTHCSS_PATHS = ["/favicon.ico", "/favicon.svg", "/logo.svg", "/styles.css"];
+
+const ASSET_EXTS = ["js", "css", "svg", "png", "jpg", "jpeg", "webp", "gif", "ico", "woff", "woff2", "ttf", "json", "map"];
+
+function isAssetPath(pathname) {
+  const clean = pathname.split("?")[0];
+  const ext = clean.includes(".") ? clean.split(".").pop().toLowerCase() : "";
+  return ext !== "" && ASSET_EXTS.includes(ext);
+}
 
 async function validateSession(sessionId) {
   if (!sessionId) return null;
@@ -19,7 +29,11 @@ async function validateSession(sessionId) {
 }
 
 function isPublic(pathname) {
-  return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"));
+  return (
+    PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/")) ||
+    AUTHCSS_PATHS.includes(pathname) ||
+    isAssetPath(pathname)
+  );
 }
 
 export async function onRequest({ request, next, env }) {
