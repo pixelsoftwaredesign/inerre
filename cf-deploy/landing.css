@@ -93,8 +93,8 @@ body {
 }
 
 /* ── Volumes 3D (cube, sphère, cône) ── */
-.geo3d { position: absolute; opacity: .09; will-change: transform; backface-visibility: visible; }
-.geo-cube { --s: 30px; width: calc(var(--s) * 2); height: calc(var(--s) * 2); transform-style: preserve-3d; }
+.geo3d { position: absolute; opacity: .08; will-change: transform; backface-visibility: visible; }
+.geo-cube { --s: 30px; width: calc(var(--s) * 2); height: calc(var(--s) * 2); transform-style: preserve-3d; animation: var(--spin, cubeSpinA) var(--dur, 26s) linear infinite var(--rev, normal); }
 .geo-cube i {
   position: absolute; inset: 0;
   background: color-mix(in srgb, var(--accent) 16%, transparent);
@@ -112,19 +112,34 @@ body {
   border-radius: 50%;
   background: radial-gradient(closest-side at 34% 30%, #8cebd8, #35b49c 44%, #1c6b5b 70%, #0d4438 100%);
   box-shadow: inset -8px -10px 20px rgba(0,0,0,.45), 0 3px 14px rgba(0,0,0,.35);
+  animation: var(--bob, sphereBob) var(--durb, 8s) ease-in-out var(--delayb, 0s) infinite;
 }
 .s1 { width: 72px; height: 72px; left: 30%; top: 10%; animation: sphereBob 7.5s ease-in-out infinite; }
 .s2 { width: 44px; height: 44px; right: 14%; top: 58%; animation: sphereBob 10s ease-in-out 1.2s infinite; }
 .geo-cone {
   clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
   background: linear-gradient(90deg, #0d4438, #35b49c 55%, #0b4035);
+  animation: var(--sway, coneSpin) var(--durc, 9s) ease-in-out infinite;
 }
 .k1 { width: 88px; height: 110px; right: 27%; bottom: 6%; animation: coneSpin 9s ease-in-out infinite; }
+.geo-torus {
+  border-radius: 50%;
+  border: 10px solid color-mix(in srgb, var(--accent) 60%, transparent);
+  box-shadow: 0 0 22px color-mix(in srgb, var(--accent) 25%, transparent);
+  animation: var(--tspin, torusSpin) var(--tdur, 16s) linear infinite;
+}
+.geo-pyramid {
+  clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
+  background: linear-gradient(90deg, #0b4035, #e7c46a 55%, #0d4438);
+  animation: var(--pspin, pyramidSpin) var(--pdur, 21s) linear infinite;
+}
 
 @keyframes cubeSpinA { from { transform: rotateX(-10deg) rotateY(0deg); } to { transform: rotateX(350deg) rotateY(360deg); } }
 @keyframes cubeSpinB { from { transform: rotateY(0deg) rotateZ(-8deg); } to { transform: rotateY(360deg) rotateZ(352deg); } }
 @keyframes sphereBob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-24px); } }
 @keyframes coneSpin { 0%, 100% { transform: rotateX(12deg) rotateY(-8deg); } 50% { transform: rotateX(-10deg) rotateY(10deg); } }
+@keyframes torusSpin { from { transform: rotateX(72deg) rotateZ(0deg); } to { transform: rotateX(72deg) rotateZ(360deg); } }
+@keyframes pyramidSpin { from { transform: rotateY(0deg) rotateX(22deg); } to { transform: rotateY(360deg) rotateX(22deg); } }
 
 @keyframes geoSpinX { from { transform: rotateX(0) rotateZ(15deg); } to { transform: rotateX(360deg) rotateZ(15deg); } }
 @keyframes geoSpinY { from { transform: rotateY(0) rotateX(10deg); } to { transform: rotateY(360deg) rotateX(10deg); } }

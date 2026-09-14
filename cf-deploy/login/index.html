@@ -39,6 +39,7 @@
   @keyframes gD3 { 0%,100% { translate: 0 0; } 33% { translate: 12px 10px; } 66% { translate: -10px -8px; } }
   .geo3d { position: absolute; opacity: .1; will-change: transform; backface-visibility: visible; }
   .geo3d .c1, .geo3d.c1 { --s: 24px; width: calc(var(--s)*2); height: calc(var(--s)*2); transform-style: preserve-3d; left: 72%; bottom: 16%; animation: gCubeA 26s linear infinite; }
+  .geo3d.geo-cube { --s: 20px; width: calc(var(--s)*2); height: calc(var(--s)*2); transform-style: preserve-3d; animation: var(--spin,gCubeA) var(--dur,26s) linear infinite var(--rev,normal); }
   .geo3d i { position: absolute; inset: 0; background: color-mix(in srgb, var(--accent) 16%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 60%, transparent); }
   .geo3d i:nth-child(1) { transform: translateZ(var(--s)); }
   .geo3d i:nth-child(2) { transform: rotateY(180deg) translateZ(var(--s)); }
@@ -47,8 +48,13 @@
   .geo3d i:nth-child(5) { transform: rotateX(90deg) translateZ(var(--s)); }
   .geo3d i:nth-child(6) { transform: rotateX(-90deg) translateZ(var(--s)); }
   .geo3d.s1 { width: 62px; height: 62px; left: 10%; top: 12%; border-radius: 50%; background: radial-gradient(closest-side at 34% 30%, #8cebd8, #35b49c 44%, #1c6b5b 70%, #0d4438 100%); box-shadow: inset -8px -10px 20px rgba(0,0,0,.45), 0 3px 14px rgba(0,0,0,.35); animation: gSphere 8s ease-in-out infinite; }
+  .geo3d.geo-sphere { border-radius: 50%; background: radial-gradient(closest-side at 34% 30%, #8cebd8, #35b49c 44%, #1c6b5b 70%, #0d4438 100%); box-shadow: inset -8px -10px 20px rgba(0,0,0,.45), 0 3px 14px rgba(0,0,0,.35); animation: var(--bob,gSphere) var(--durb,9s) ease-in-out var(--delayb,0s) infinite; }
+  .geo3d.geo-torus { border-radius: 50%; border: 8px solid color-mix(in srgb, var(--accent) 60%, transparent); box-shadow: 0 0 18px color-mix(in srgb, var(--accent) 25%, transparent); animation: var(--tspin,gTorus) var(--tdur,16s) linear infinite; }
+  .geo3d.geo-pyramid { clip-path: polygon(50% 0%, 100% 100%, 0% 100%); background: linear-gradient(90deg, #0b4035, #e7c46a 55%, #0d4438); animation: var(--pspin,gPyramid) var(--pdur,22s) linear infinite; }
   @keyframes gCubeA { from { transform: rotateX(-10deg) rotateY(0deg); } to { transform: rotateX(350deg) rotateY(360deg); } }
   @keyframes gSphere { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-20px); } }
+  @keyframes gTorus { from { transform: rotateX(72deg) rotateZ(0deg); } to { transform: rotateX(72deg) rotateZ(360deg); } }
+  @keyframes gPyramid { from { transform: rotateY(0deg) rotateX(22deg); } to { transform: rotateY(360deg) rotateX(22deg); } }
   @media (prefers-reduced-motion: reduce) { .g, .geo3d { animation: none !important; } }
   .login-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
   .login-card {
@@ -99,6 +105,11 @@
     <i class="g g1"></i><i class="g g2"></i><i class="g g3"></i><i class="g g4"></i>
     <div class="geo3d geo-cube c1"><i></i><i></i><i></i><i></i><i></i><i></i></div>
     <div class="geo3d geo-sphere s1"></div>
+    <div class="geo3d geo-cube" style="--s:15px;--dur:22s;--rev:reverse;left:18%;top:72%"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <div class="geo3d geo-cube" style="--s:11px;--dur:18s;left:70%;top:8%"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <div class="geo3d geo-sphere" style="width:30px;height:30px;--durb:10s;--delayb:1.5s;left:58%;bottom:24%"></div>
+    <div class="geo3d geo-torus" style="width:42px;height:42px;--tdur:19s;right:28%;bottom:14%"></div>
+    <div class="geo3d geo-pyramid" style="width:48px;height:48px;--pdur:23s;right:5%;top:8%"></div>
   </div>
   <div class="login-wrap">
     <div class="login-card">
