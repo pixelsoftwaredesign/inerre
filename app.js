@@ -5,9 +5,19 @@ import { TransformControls } from "three/addons/controls/TransformControls.js";
 import { OBJExporter } from "three/addons/exporters/OBJExporter.js";
 import { GLTFExporter } from "three/addons/exporters/GLTFExporter.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { OBJLoader } from "three/addons/loaders/OBJLoader.js";
+import { FBXLoader } from "three/addons/loaders/FBXLoader.js";
 import { CSG } from "three-csg-ts";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { RGBELoader } from "three/addons/loaders/RGBELoader.js";
+import { Engine } from "./src/core/Engine.js";
+import { SceneManager } from "./src/core/SceneManager.js";
+import { applyModeVisibility } from "./src/ui/ModeUI.js";
+import { MeshEditMode, ensureIndexedGeometry as ensureIndexedGeometryHelper, buildSubData as buildSubDataHelper } from "./src/modes/MeshEditMode.js";
+import { CadMode } from "./src/modes/CadMode.js";
+import { Panorama360Mode } from "./src/modes/Panorama360Mode.js";
+import { CinematicMode } from "./src/modes/CinematicMode.js";
+import { LandscapeMode } from "./src/modes/LandscapeMode.js";
 
 // ============================================================
 // 1. Noyau Mathématique Vectoriel 2D
@@ -859,6 +869,7 @@ const state = {
   },
   objects: [],
   selectedIds: [],
+  assets: {},
   clusters: [],
   draw: {
     tool: null,
@@ -1029,6 +1040,9 @@ const dom = {
   planInput: document.querySelector("#planInput"),
   projectInput: document.querySelector("#projectInput"),
   glbInput: document.querySelector("#glbInput"),
+  objInput: document.querySelector("#objInput"),
+  fbxInput: document.querySelector("#fbxInput"),
+  textureInput: document.querySelector("#textureInput"),
   drawCanvas: document.querySelector("#drawCanvas"),
   statusMode: document.querySelector("#statusMode"),
   statusInfo: document.querySelector("#statusInfo"),
@@ -1149,15 +1163,15 @@ let measurePoints = [];
 let measureActive = false;
 const MEASURE_LIST = [];
 
-let subHelperGroup = null;
-let subProxy = null;
-let subData = null;
-let subProxyStart = null;
+let __engine = null;
+let __sceneManager = null;
+let meshEditObj = null;
 
 initLighting();
 initQuadView();
 buildRoom();
 bindUI();
+setupModes();
 setTransformMode("translate");
 setSelectionMode("point");
 pushUndo();
@@ -2060,6 +2074,7 @@ function vertexClusterTopology(id) {
 }
 
 function subTopologyInfo() {
+  const subData = meshEditObj ? meshEditObj.subData : null;
   if (!subData || subData.selected == null) return null;
   const { unique, tris, edges, selType, selected } = subData;
   if (selType === "vertex") {
@@ -2942,6 +2957,7 @@ function setSubObjectLevel(level) {
   document.querySelectorAll("[data-subobj]").forEach(btn => {
     btn.classList.toggle("active", btn.dataset.subobj === level);
   });
+  syncMeshToolbar(level);
   if (level === "object") {
     exitSubObjectMode();
   } else {
@@ -2964,11 +2980,19 @@ function setTransformTool(tool) {
     document.querySelectorAll("[data-transform]").forEach(btn => {
       btn.classList.toggle("active", btn.dataset.transform === tool);
     });
+    syncMeshTools(tool);
     return;
   }
   setTransformMode(tool);
   document.querySelectorAll("[data-transform]").forEach(btn => {
     btn.classList.toggle("active", btn.dataset.transform === tool);
+  });
+  syncMeshTools(tool);
+}
+
+function syncMeshTools(tool) {
+  document.querySelectorAll("[data-mesh-tool]").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.meshTool === tool);
   });
 }
 
@@ -3112,6 +3136,9 @@ function bindUI() {
   document.querySelector("#exportObjBtn").addEventListener("click", exportOBJ);
   document.querySelector("#exportGLBBtn").addEventListener("click", exportGLB);
   document.querySelector("#importGLBBtn").addEventListener("click", () => dom.glbInput.click());
+  document.querySelector("#importObjBtn").addEventListener("click", () => dom.objInput.click());
+  document.querySelector("#importFbxBtn").addEventListener("click", () => dom.fbxInput.click());
+  document.querySelector("#importTextureBtn").addEventListener("click", () => dom.textureInput.click());
   document.querySelector("#importPanoramaBtn").addEventListener("click", () => dom.panoramaInput.click());
   document.querySelector("#exportPanoramaBtn").addEventListener("click", exportPanorama);
   document.querySelectorAll("[data-cmd-tab]").forEach((btn) => {
@@ -3240,6 +3267,9 @@ function bindUI() {
   document.querySelector("#planModeBtn").addEventListener("click", () => setMode("plan"));
   document.querySelector("#panoModeBtn").addEventListener("click", () => setMode("pano"));
   document.querySelector("#splitModeBtn").addEventListener("click", () => setMode("split"));
+  document.querySelectorAll("[data-mode-btn]").forEach((btn) => {
+    btn.addEventListener("click", () => __engine?.setActiveMode(btn.dataset.modeBtn));
+  });
 
   document.querySelectorAll("[data-add]").forEach((button) => {
     button.addEventListener("click", () => { pushUndo(); addObject(button.dataset.add); });
@@ -3391,6 +3421,7 @@ function bindUI() {
         state.selectedIds = state.objects.map((o) => o.id);
 const primary = primaryId();
   const mesh = primary ? findMesh(primary) : null;
+  const subData = meshEditObj ? meshEditObj.subData : null;
   if (subData && state.subObjectLevel !== "object") {
     if (subData.mesh !== mesh) {
       exitSubObjectMode();
@@ -3605,6 +3636,31 @@ const primary = primaryId();
   document.querySelectorAll("[data-subobj]").forEach((btn) => {
     btn.addEventListener("click", () => setSubObjectLevel(btn.dataset.subobj));
   });
+  document.querySelectorAll("[data-mesh-sel]").forEach((btn) => {
+    btn.addEventListener("click", () => setSubObjectLevel(btn.dataset.meshSel));
+  });
+  document.querySelectorAll("[data-mesh-tool]").forEach((btn) => {
+    btn.addEventListener("click", () => setTransformTool(btn.dataset.meshTool));
+  });
+  document.querySelector("#meshExtruderBtn")?.addEventListener("click", () => extrudeSelected());
+  document.querySelector("#meshBevelBtn2")?.addEventListener("click", () => bevelSelected());
+  const CT_ACTIONS = {
+    measure: toggleMeasure,
+    snap: toggleSnap,
+    focus: focusCamera,
+    panoramaImport: () => dom.panoramaInput.click(),
+    panoramaExport: exportPanorama,
+    cinePlay: toggleCine,
+    cinePause: toggleCine,
+    cineKey: addObjectKeyframe,
+    cinePanel: toggleCinePanel,
+    cineExport: exportVideo,
+    terrain: createTerrain,
+  };
+  document.querySelectorAll("[data-ct]").forEach((btn) => {
+    const fn = CT_ACTIONS[btn.dataset.ct];
+    if (fn) btn.addEventListener("click", fn);
+  });
   dom.quadViewBtn?.addEventListener("click", toggleQuadView);
   dom.vpOverlay?.querySelectorAll(".vp-label").forEach(el => {
     el.addEventListener("click", () => {
@@ -3617,10 +3673,15 @@ const primary = primaryId();
   window.addEventListener("keydown", (event) => {
     if (event.target?.tagName === "INPUT" || event.target?.tagName === "TEXTAREA" || event.target?.tagName === "SELECT") return;
     const key = event.key.toLowerCase();
+    const inMeshEdit = __engine?.active?.id === "MESH_EDIT";
     if (!event.ctrlKey && !event.metaKey && !event.altKey) {
-      if (key === "q") { event.preventDefault(); setTransformTool("select"); }
+      if (inMeshEdit && key === "1") { event.preventDefault(); setSubObjectLevel("vertex"); }
+      else if (inMeshEdit && key === "2") { event.preventDefault(); setSubObjectLevel("edge"); }
+      else if (inMeshEdit && key === "3") { event.preventDefault(); setSubObjectLevel("face"); }
+      else if (inMeshEdit && key === "e") { event.preventDefault(); extrudeSelected(); }
+      else if (key === "q") { event.preventDefault(); setTransformTool("select"); }
       else if (key === "w") { event.preventDefault(); setTransformTool("translate"); }
-      else if (key === "e") { event.preventDefault(); setTransformTool("rotate"); }
+      else if (!inMeshEdit && key === "e") { event.preventDefault(); setTransformTool("rotate"); }
       else if (key === "r") { event.preventDefault(); setTransformTool("scale"); }
       else if (key === " ") { event.preventDefault(); setTransformTool("select"); }
     }
@@ -3749,7 +3810,22 @@ function createMesh(spec) {
   const lightMaterial = createMaterial("lightWarm");
   const ceramicMaterial = createMaterial("ceramic");
 
-  if (spec.type === "lamp") {
+  if (spec.type === "custom") {
+    const asset = state.assets[spec.assetId];
+    mesh = new THREE.Group();
+    if (asset) {
+      const geo = asset.geometry.clone();
+      const mat = new THREE.MeshStandardMaterial({
+        color: asset.color || "#cccccc",
+        roughness: asset.roughness ?? 0.6,
+        metalness: asset.metalness ?? 0.05,
+      });
+      const part = new THREE.Mesh(geo, mat);
+      part.castShadow = true;
+      part.receiveShadow = true;
+      mesh.add(part);
+    }
+  } else if (spec.type === "lamp") {
     mesh = new THREE.Group();
     const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 1.25, 24), material);
     pole.position.y = 0.35;
@@ -4012,6 +4088,7 @@ function createMesh(spec) {
     mesh.userData.animBase = new Float32Array(p.array.slice());
   }
   mesh.userData.anim = animType ? spec.anim : null;
+  if (spec.textureDataUrl) applyTextureToMesh(mesh, spec, spec.textureDataUrl);
   return mesh;
 }
 
@@ -4433,6 +4510,7 @@ function materialForType(type, preset) {
 function labelFor(type) {
   return {
     box: "Cube",
+    custom: "Objet importé",
     sofa: "Sofa",
     table: "Table",
     lamp: "Lamp",
@@ -4813,6 +4891,7 @@ function renderObjectList() {
   updateModifierStack();
   updateStatusBar();
   updatePipeline();
+  renderCustomLibrary();
 }
 
 function renderInspector() {
@@ -5041,6 +5120,7 @@ function newProject() {
   state.objects = [];
   state.selectedIds = [];
   state.clusters = [];
+  state.assets = {};
   state.room = { width: 7, depth: 5, height: 3 };
   state.draw = { tool: null, active: false, shapes: [], current: null, scale: 100 };
   state.boolean = { active: false, firstId: null, operation: "subtract" };
@@ -5109,7 +5189,7 @@ function toProjectJSON() {
   const landscapeHeightData = ls.mesh ? Array.from(ls.mesh.geometry.attributes.position.array) : null;
   return {
     app: "Iner Studio",
-    version: 2,
+    version: 3,
     savedAt: new Date().toISOString(),
     name: state.name,
     style: state.style,
@@ -5121,6 +5201,13 @@ function toProjectJSON() {
     plan: state.plan,
     objects: state.objects,
     clusters: state.clusters,
+    assets: Object.fromEntries(Object.entries(state.assets).map(([id, asset]) => [id, {
+      name: asset.name || "Objet importé",
+      color: asset.color || "#cccccc",
+      roughness: asset.roughness ?? 0.6,
+      metalness: asset.metalness ?? 0.05,
+      geometry: asset.geometry.toJSON(),
+    }])),
     draw: {
       shapes: state.draw.shapes,
       scale: state.draw.scale,
@@ -5157,6 +5244,24 @@ function openProject(event) {
 
 function loadProject(project, fileName) {
   newProject();
+  state.assets = {};
+  Object.entries(project.assets || {}).forEach(([id, asset]) => {
+    if (!asset?.geometry) return;
+    let geo;
+    try {
+      geo = new THREE.BufferGeometryLoader().parse(asset.geometry);
+    } catch (e) {
+      console.error("Asset geometry invalide:", id, e);
+      return;
+    }
+    state.assets[id] = {
+      geometry: geo,
+      name: asset.name || "Objet importé",
+      color: asset.color || "#cccccc",
+      roughness: asset.roughness ?? 0.6,
+      metalness: asset.metalness ?? 0.05,
+    };
+  });
   state.name = project.name || fileName.replace(/\.(pix|inrproject)$/i, "");
   state.style = project.style || "american";
   state.room = project.room || state.room;
@@ -5439,33 +5544,7 @@ function importGLB(event) {
   reader.onload = () => {
     const loader = new GLTFLoader();
     loader.parse(reader.result, "", (gltf) => {
-      const importedIds = [];
-      gltf.scene.traverse((child) => {
-        if (!child.isMesh) return;
-        const id = crypto.randomUUID();
-        child.userData.id = id;
-        child.userData.type = "box";
-        const mat = child.material;
-        const color = mat?.color ? "#" + mat.color.getHexString() : "#cccccc";
-        const spec = {
-          id,
-          type: "box",
-          name: child.name || "Imported",
-          position: { x: round(child.position.x), y: round(child.position.y), z: round(child.position.z) },
-          scale: { x: round(child.scale.x), y: round(child.scale.y), z: round(child.scale.z) },
-          rotation: { x: round(child.rotation.x), y: round(child.rotation.y), z: round(child.rotation.z) },
-          color,
-          material: "paintWarm",
-        };
-        state.objects.push(spec);
-        objectGroup.add(child);
-        importedIds.push(id);
-      });
-      if (importedIds.length) {
-        selectObject(importedIds[importedIds.length - 1]);
-      }
-      renderObjectList();
-      renderInspector();
+      registerImported("glb", file.name, gltf.scene);
     }, (error) => {
       console.error("GLB import error:", error);
       alert("Erreur lors de l'import GLB.");
@@ -5473,6 +5552,192 @@ function importGLB(event) {
   };
   reader.readAsArrayBuffer(file);
   event.target.value = "";
+}
+
+function importOBJ(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const loader = new OBJLoader();
+      const obj = loader.parse(reader.result);
+      registerImported("obj", file.name, obj);
+    } catch (error) {
+      console.error("OBJ import error:", error);
+      alert("Erreur lors de l'import OBJ.");
+    }
+  };
+  reader.readAsText(file);
+  event.target.value = "";
+}
+
+function importFBX(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const loader = new FBXLoader();
+    loader.parse(reader.result, file.name, (fbx) => {
+      registerImported("fbx", file.name, fbx);
+    }, (error) => {
+      console.error("FBX import error:", error);
+      alert("Erreur lors de l'import FBX.");
+    });
+  };
+  reader.readAsArrayBuffer(file);
+  event.target.value = "";
+}
+
+function registerImported(kind, fileName, root) {
+  const meshes = [];
+  root.traverse((child) => { if (child.isMesh && child.geometry) meshes.push(child); });
+  if (!meshes.length) {
+    alert("Aucun maillage détecté dans le fichier.");
+    return;
+  }
+  root.updateWorldMatrix(true, false);
+  let merged = null;
+  if (meshes.length === 1) {
+    merged = meshes[0].geometry.clone();
+    merged.applyMatrix4(meshes[0].matrixWorld);
+  } else {
+    try {
+      merged = mergeGeometries(meshes.map((m) => {
+        const g = m.geometry.clone();
+        g.applyMatrix4(m.matrixWorld);
+        return g;
+      }), false);
+    } catch (e) {
+      console.warn("mergeGeometries failed:", e);
+      merged = meshes[0].geometry.clone();
+      merged.applyMatrix4(meshes[0].matrixWorld);
+    }
+  }
+  if (!merged.getAttribute("normal")) merged.computeVertexNormals();
+  const box = new THREE.Box3().setFromObject(root);
+  const size = new THREE.Vector3();
+  box.getSize(size);
+  const center = new THREE.Vector3();
+  box.getCenter(center);
+  const maxDim = Math.max(size.x, size.y, size.z, 0.001);
+  const fit = Math.min(1, 2.5 / maxDim);
+  const srcMat = meshes[0].material;
+  const color = srcMat?.color ? "#" + srcMat.color.getHexString() : "#cccccc";
+  const assetId = "asset_" + crypto.randomUUID().slice(0, 8);
+  state.assets[assetId] = {
+    geometry: merged,
+    name: fileName.replace(/\.[^.]+$/i, "") || "Objet importé",
+    color,
+    roughness: 0.6,
+    metalness: 0.05,
+  };
+  const spec = {
+    id: crypto.randomUUID(),
+    type: "custom",
+    name: state.assets[assetId].name,
+    assetId,
+    position: { x: round(-center.x * fit), y: round(-box.min.y * fit), z: round(-center.z * fit) },
+    scale: { x: fit, y: fit, z: fit },
+    rotation: { x: 0, y: 0, z: 0 },
+    color,
+    material: "paintWarm",
+  };
+  state.objects.push(spec);
+  const mesh = createMesh(spec);
+  objectGroup.add(mesh);
+  selectObject(spec.id);
+  renderObjectList();
+}
+
+function importTexture(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    if (!state.selectedIds.length) {
+      alert("Sélectionne d'abord un objet dans la scène.");
+      return;
+    }
+    pushUndo();
+    state.selectedIds.forEach((id) => {
+      const spec = findSpec(id);
+      const mesh = findMesh(id);
+      if (!spec || !mesh) return;
+      spec.textureDataUrl = reader.result;
+      applyTextureToMesh(mesh, spec, reader.result);
+    });
+    renderInspector();
+  };
+  reader.readAsDataURL(file);
+  event.target.value = "";
+}
+
+function loadImportedTexture(dataUrl) {
+  const texture = new THREE.TextureLoader().load(dataUrl);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
+  return texture;
+}
+
+function applyTextureToMesh(mesh, spec, dataUrl) {
+  const texture = loadImportedTexture(dataUrl);
+  const clones = new Map();
+  mesh.traverse((child) => {
+    if (!child.isMesh || !child.material) return;
+    let hit = spec.type === "custom";
+    if (!hit) {
+      const key = child.userData.materialKey || "";
+      hit = key === (spec.material || "") || (!key && child.material.side === THREE.FrontSide);
+    }
+    if (!hit) return;
+    let mat = clones.get(child.material);
+    if (!mat) {
+      mat = child.material.clone();
+      clones.set(child.material, mat);
+    }
+    mat.map = texture;
+    mat.needsUpdate = true;
+    child.material = mat;
+  });
+}
+
+function renderCustomLibrary() {
+  const container = document.querySelector("#customLib");
+  if (!container) return;
+  container.innerHTML = "";
+  Object.keys(state.assets).forEach((assetId) => {
+    const asset = state.assets[assetId];
+    const item = document.createElement("button");
+    item.className = "custom-lib-item";
+    item.textContent = asset.name || assetId;
+    item.addEventListener("click", () => addCustomInstance(assetId));
+    container.appendChild(item);
+  });
+}
+
+function addCustomInstance(assetId) {
+  const asset = state.assets[assetId];
+  if (!asset) return;
+  pushUndo();
+  const spec = {
+    id: crypto.randomUUID(),
+    type: "custom",
+    name: asset.name || "Objet importé",
+    assetId,
+    position: { x: 0, y: 0, z: 0 },
+    scale: { x: 1, y: 1, z: 1 },
+    rotation: { x: 0, y: 0, z: 0 },
+    color: asset.color || "#cccccc",
+    material: "paintWarm",
+  };
+  state.objects.push(spec);
+  const mesh = createMesh(spec);
+  objectGroup.add(mesh);
+  selectObject(spec.id);
+  renderObjectList();
 }
 
 function duplicateSelected() {
@@ -6316,287 +6581,62 @@ function toggleCollision() {
 
 /* ============================================================
    Édition sous-objet (Vertex / Edge / Face)
+   Déléguée au contrôleur MeshEditMode (src/modes/MeshEditMode.js)
    ============================================================ */
 
-function initSubHelpers() {
-  if (subHelperGroup) return;
-  subHelperGroup = new THREE.Group();
-  subHelperGroup.name = "_subHelpers";
-  scene.add(subHelperGroup);
-  subProxy = new THREE.Object3D();
-  subProxy.userData.subMarker = true;
-  scene.add(subProxy);
-}
-
-function ensureIndexedGeometry(geo) {
-  if (geo.index) return geo;
-  const pos = geo.attributes.position;
-  const seen = new Map();
-  const verts = [];
-  const order = [];
-  const p = new Array(3);
-  for (let i = 0; i < pos.count; i++) {
-    p[0] = pos.getX(i); p[1] = pos.getY(i); p[2] = pos.getZ(i);
-    const k = `${p[0].toFixed(5)},${p[1].toFixed(5)},${p[2].toFixed(5)}`;
-    if (seen.has(k)) order.push(seen.get(k));
-    else {
-      seen.set(k, verts.length / 3);
-      verts.push(p[0], p[1], p[2]);
-      order.push(verts.length / 3 - 1);
-    }
-  }
-  const out = new THREE.BufferGeometry();
-  out.setAttribute("position", new THREE.BufferAttribute(new Float32Array(verts), 3));
-  out.setIndex(order);
-  out.computeVertexNormals();
-  return out;
-}
-
-function enterSubMode(level) {
-  initSubHelpers();
-  exitSubObjectMode(false);
-  const mesh = getSelectedMesh();
-  if (!mesh) { setStatusInfo("Sélectionne d'abord un objet 3D"); return; }
-  mesh.geometry = ensureIndexedGeometry(mesh.geometry);
-  subData = buildSubData(mesh, level);
-  rebuildSubMarkers();
-  setStatusInfo(`Mode ${level}: clique sur le maillage pour sélectionner, puis déplace avec W`);
-  transformControls.setTranslationSnap(null);
-}
-
-function buildSubData(mesh, mode) {
-  const geo = mesh.geometry;
-  const pos = geo.attributes.position;
-  const idxArr = geo.index.array;
-  const uidOf = new Map();
-  const unique = [];
-  const order = [];
-  const p = new Array(3);
-  for (let i = 0; i < pos.count; i++) {
-    p[0] = pos.getX(i); p[1] = pos.getY(i); p[2] = pos.getZ(i);
-    const k = `${p[0].toFixed(5)},${p[1].toFixed(5)},${p[2].toFixed(5)}`;
-    if (uidOf.has(k)) order.push(uidOf.get(k));
-    else {
-      uidOf.set(k, unique.length);
-      unique.push({ pos: new THREE.Vector3(p[0], p[1], p[2]), idxs: [i] });
-      order.push(unique.length - 1);
-    }
-  }
-  const tris = [];
-  for (let i = 0; i < idxArr.length; i += 3) {
-    const t = [order[idxArr[i]], order[idxArr[i + 1]], order[idxArr[i + 2]]];
-    tris.push(t);
-    t.forEach((u) => {
-      const rec = unique[u];
-      const ui = idxArr[i + (t.indexOf(u))];
-      if (!rec.idxs.includes(ui)) rec.idxs.push(ui);
-    });
-  }
-  const edges = [];
-  const edgeByKey = new Map();
-  tris.forEach((t, fi) => {
-    for (let e = 0; e < 3; e++) {
-      const a = t[e], b = t[(e + 1) % 3];
-      const keyEdge = a < b ? `${a}:${b}` : `${b}:${a}`;
-      if (!edgeByKey.has(keyEdge)) {
-        edgeByKey.set(keyEdge, edges.length);
-        edges.push({ a, b, idx: edges.length, key: keyEdge });
-      }
-    }
-  });
-  return { mesh, mode, pos, unique, tris, edges, edgeByKey, selected: null, selType: null, dirty: false };
-}
-
-function featureWorldPosition() {
-  if (!subData || subData.selected == null) return null;
-  const { mesh, unique, tris, edges, selected, selType } = subData;
-  const local = new THREE.Vector3();
-  if (selType === "vertex") local.copy(unique[selected].pos);
-  else if (selType === "edge") {
-    const ed = edges[selected];
-    local.addVectors(unique[ed.a].pos, unique[ed.b].pos).multiplyScalar(0.5);
-  } else {
-    const tri = tris[selected];
-    tri.forEach(u => local.add(unique[u].pos));
-    local.divideScalar(3);
-  }
-  return mesh.localToWorld(local);
-}
-
-function attachSubProxy() {
-  if (!subData || subData.selected == null) return;
-  const worldPos = featureWorldPosition();
-  if (!worldPos) return;
-  subProxy.position.copy(worldPos);
-  subProxyStart = worldPos.clone();
-  transformControls.attach(subProxy);
-  transformControls.mode = "translate";
-}
-
-function distPointToSegment(p, a, b) {
-  const ab = b.clone().sub(a);
-  const ap = p.clone().sub(a);
-  const t = Math.max(0, Math.min(1, ap.dot(ab) / (ab.lengthSq() || 1)));
-  return p.distanceTo(a.clone().add(ab.multiplyScalar(t)));
-}
-
-function pickSubFeature(event) {
-  if (!subData) return;
-  if (transformControls.object?.userData.subMarker) return; // gizmo en cours sur une feature
-  const mesh = subData.mesh;
-  if (!mesh.visible) return;
-  const bounds = renderer.domElement.getBoundingClientRect();
-  const pointer = new THREE.Vector2(
-    ((event.clientX - bounds.left) / bounds.width) * 2 - 1,
-    -((event.clientY - bounds.top) / bounds.height) * 2 + 1
-  );
-  const raycaster = new THREE.Raycaster();
-  raycaster.setFromCamera(pointer, camera);
-  const hits = raycaster.intersectObject(mesh, false);
-  if (!hits.length) return;
-  const hit = hits[0];
-  const lp = mesh.worldToLocal(hit.point.clone());
-  const faceIndex = hit.faceIndex;
-  const { unique, tris, pos } = subData;
-  const mode = subData.mode;
-  if (mode === "face") {
-    subData.selected = Math.floor(faceIndex / 3);
-    subData.selType = "face";
-  } else if (mode === "vertex") {
-    const tri = tris[Math.floor(faceIndex / 3)];
-    let best = tri[0], bd = Infinity;
-    for (const u of tri) {
-      const d = unique[u].pos.distanceTo(lp);
-      if (d < bd) { bd = d; best = u; }
-    }
-    subData.selected = best;
-    subData.selType = "vertex";
-  } else {
-    const tri = tris[Math.floor(faceIndex / 3)];
-    let bestKey = null, bd = Infinity;
-    for (let e = 0; e < 3; e++) {
-      const a = tri[e], b = tri[(e + 1) % 3];
-      const key = a < b ? `${a}:${b}` : `${b}:${a}`;
-      const rec = subData.edges[subData.edgeByKey.get(key)];
-      const d = distPointToSegment(lp, unique[rec.a].pos, unique[rec.b].pos);
-      if (d < bd) { bd = d; bestKey = key; }
-    }
-    subData.selected = subData.edgeByKey.get(bestKey);
-    subData.selType = "edge";
-  }
-  attachSubProxy();
-  rebuildSubMarkers();
-}
-
-function applySubObjectDrag() {
-  if (!subData || subData.selected == null || !subProxyStart) return;
-  const { mesh, unique, tris, edges, selected, selType } = subData;
-  const worldPos = subProxy.position;
-  const deltaWorld = worldPos.clone().sub(subProxyStart);
-  const a = mesh.worldToLocal(deltaWorld.clone());
-  const b = mesh.worldToLocal(new THREE.Vector3(0, 0, 0));
-  const deltaLocal = a.sub(b);
-  subProxyStart.copy(worldPos);
-  const pos = mesh.geometry.attributes.position;
-  const each = [];
-  if (selType === "vertex") each.push(selected);
-  else if (selType === "edge") each.push(edges[selected].a, edges[selected].b);
-  else each.push(...tris[selected]);
-  for (const u of each) {
-    unique[u].pos.add(deltaLocal);
-    for (const i of unique[u].idxs) {
-      pos.setXYZ(i, unique[u].pos.x, unique[u].pos.y, unique[u].pos.z);
-    }
-  }
-  pos.needsUpdate = true;
-  mesh.geometry.computeVertexNormals();
-  rebuildSubMarkers();
-}
-
-function rebuildSubMarkers() {
-  if (!subHelperGroup || !subData) return;
-  const { mesh, mode, unique, tris, edges, selected } = subData;
-  subHelperGroup.clear();
-  if (unique.length > 4000) return;
-  const dot = new THREE.MeshBasicMaterial({ color: 0x35b49c, transparent: true, opacity: 0.9 });
-  const selDot = new THREE.MeshBasicMaterial({ color: 0xffb74d });
-  const world = new THREE.Vector3();
-  const addDot = (localPos, sel, r) => {
-    const s = new THREE.Mesh(new THREE.SphereGeometry(r, 10, 8), sel ? selDot : dot);
-    s.position.copy(mesh.localToWorld(localPos.clone()));
-    s.userData.subMarker = true;
-    subHelperGroup.add(s);
-  };
-  if (mode === "vertex") {
-    unique.forEach((u, i) => addDot(u.pos, i === selected, i === selected ? 0.12 : 0.05));
-  } else if (mode === "edge") {
-    edges.forEach((ed, i) => {
-      const mid = unique[ed.a].pos.clone().add(unique[ed.b].pos).multiplyScalar(0.5);
-      addDot(mid, i === selected, i === selected ? 0.12 : 0.05);
-    });
-  } else {
-    tris.forEach((t, i) => {
-      const c = new THREE.Vector3();
-      t.forEach(u => c.add(unique[u].pos));
-      c.divideScalar(3);
-      addDot(c, i === selected, i === selected ? 0.16 : 0.07);
-    });
-  }
-}
-
+function initSubHelpers() { meshEditObj.initSubHelpers(); }
+function ensureIndexedGeometry(geo) { return ensureIndexedGeometryHelper(geo); }
+function enterSubMode(level) { meshEditObj.enterSubMode(level); }
+function buildSubData(mesh, mode) { return buildSubDataHelper(mesh, mode); }
+function featureWorldPosition() { return meshEditObj.featureWorldPosition(); }
+function attachSubProxy() { meshEditObj.attachSubProxy(); }
+function distPointToSegment(p, a, b) { return meshEditObj.distPointToSegment(p, a, b); }
+function pickSubFeature(event) { meshEditObj.pickFeature(event); }
+function applySubObjectDrag() { meshEditObj.applyDrag(); }
+function rebuildSubMarkers() { meshEditObj.rebuildSubMarkers(); }
 function exitSubObjectMode(clearButtons = true) {
-  if (subHelperGroup) subHelperGroup.clear();
-  if (transformControls.object?.userData.subMarker) transformControls.detach();
-  subData = null;
-  subProxyStart = null;
-  if (clearButtons && state.subObjectLevel !== "object") {
-    state.subObjectLevel = "object";
-    document.querySelectorAll("[data-subobj]").forEach(btn => {
-      btn.classList.toggle("active", btn.dataset.subobj === "object");
-    });
-  }
+  meshEditObj.exitSubObjectMode(clearButtons);
+  if (clearButtons) syncMeshToolbar("object");
 }
 
-function extrudeSelectedFace(dist = 0.3) {
-  if (!subData || subData.selType !== "face" || subData.selected == null) return false;
-  const { mesh, unique, tris, selected } = subData;
-  const geo = mesh.geometry;
-  const oldPos = geo.attributes.position;
-  const count = oldPos.count;
-  const tri = tris[selected];
-  const a = unique[tri[0]].pos, b = unique[tri[1]].pos, c = unique[tri[2]].pos;
-  const ab = b.clone().sub(a), ac = c.clone().sub(a);
-  const normal = ab.cross(ac).normalize();
-  const newArr = new Float32Array((count + 3) * 3);
-  newArr.set(oldPos.array);
-  const capIdx = [];
-  tri.forEach((u, i) => {
-    const q = unique[u].pos;
-    const bi = (count + i) * 3;
-    newArr[bi] = q.x + normal.x * dist;
-    newArr[bi + 1] = q.y + normal.y * dist;
-    newArr[bi + 2] = q.z + normal.z * dist;
-    capIdx.push(count + i);
+function syncMeshToolbar(level) {
+  document.querySelectorAll("[data-mesh-sel]").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.meshSel === level);
   });
-  geo.setAttribute("position", new THREE.BufferAttribute(newArr, 3));
-  const idx = [...geo.index.array];
-  idx.push(capIdx[0], capIdx[1], capIdx[2]);
-  for (let e = 0; e < 3; e++) {
-    const oa = unique[tri[e]].idxs[0];
-    const ob = unique[tri[(e + 1) % 3]].idxs[0];
-    const na = capIdx[e], nb = capIdx[(e + 1) % 3];
-    idx.push(oa, ob, na, ob, nb, na);
-  }
-  geo.setIndex(idx);
-  geo.computeVertexNormals();
-  const oldTris = tris.length;
-  pushUndo();
-  subData = buildSubData(mesh, "face");
-  subData.selected = oldTris;
-  subData.selType = "face";
-  attachSubProxy();
-  rebuildSubMarkers();
-  return true;
+}
+function extrudeSelectedFace(dist = 0.3) { return meshEditObj.extrudeSelectedFace(dist); }
+
+function setupModes() {
+  __sceneManager = new SceneManager({
+    scene, camera,
+    objectGroup, roomGroup, landscapeGroup,
+    gridHelper,
+  });
+  const meshCtx = {
+    state, dom, scene, camera, renderer, transformControls, objectGroup,
+    setStatusInfo, pushUndo, updateStatusBar,
+  };
+  meshEditObj = new MeshEditMode(meshCtx);
+  const appCtx = {
+    state, dom,
+    setLegacyMode: (m) => setMode(m),
+    setStatusInfo,
+    updateStatusBar,
+    showPanel: () => {},
+    onCineEnter: () => { renderCineTimeline(); updateCineHead(); },
+    onCineExit: () => {},
+    onCineUpdate: () => {},
+    onLandscapeEnter: () => {},
+    onLandscapeExit: () => {},
+    onLandscapeUpdate: () => {},
+  };
+  __engine = new Engine({ onModeChange: (mode) => applyModeVisibility(mode.id) });
+  __engine.registerMode(new CadMode(appCtx));
+  __engine.registerMode(meshEditObj);
+  __engine.registerMode(new Panorama360Mode(appCtx));
+  __engine.registerMode(new CinematicMode(appCtx));
+  __engine.registerMode(new LandscapeMode(appCtx));
+  __engine.setActiveMode("CAD");
 }
 
 /* ============================================================
@@ -7368,6 +7408,7 @@ function updateStatusBar() {
     state.deform.active ? `Deform: ${state.deform.type}` :
     state.landscape.mesh ? `Sculpt: ${state.landscape.tool}` :
     state.subObjectLevel !== "object" ? `Edit ${state.subObjectLevel}` :
+    __engine?.active?.id && __engine.active.id !== "CAD" ? ({ MESH_EDIT: "Mesh Edit", PANORAMA_360: "360°", CINEMATIC: "Cinématique", LANDSCAPE: "Paysage" })[__engine.active.id] || __engine.active.id :
     "Model";
   dom.statusMode.textContent = `Mode: ${mode}`;
 
@@ -7448,6 +7489,7 @@ function animate() {
     updateSceneAnimation(dt);
   }
   if (state.cine.playing) cineTick(dt);
+  if (__engine) __engine.update(dt, state.anim.t);
   controls.update();
   panoControls.update();
   if (quadViewActive && vpFrontCam && vpTopCam && vpLeftCam) {
@@ -7504,4 +7546,8 @@ function escapeHTML(value) {
     '"': "&quot;",
     "'": "&#039;",
   })[char]);
+}
+
+if (new URLSearchParams(location.search).get("debug") === "1") {
+  window.__iner = { state, toProjectJSON, loadProject, createMesh, registerImported, renderCustomLibrary, addCustomInstance, engine: __engine, sceneManager: __sceneManager, meshEditMode: meshEditObj, setMode };
 }

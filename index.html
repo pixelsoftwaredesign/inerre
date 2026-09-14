@@ -109,6 +109,87 @@
         </div>
       </header>
 
+      <!-- ===== MODE BAR (architecture modulaire : machine à modes) ===== -->
+      <div class="mode-strips">
+        <div class="modebar" role="tablist" aria-label="Modes du studio">
+          <span class="modebar-label">Modes</span>
+          <button data-mode-btn="CAD" class="active" title="Conception : pièce, plan, mobilier, matériaux">CAD</button>
+          <button data-mode-btn="MESH_EDIT" title="Édition de maillage : sommets, arêtes, faces">Mesh Edit</button>
+          <button data-mode-btn="PANORAMA_360" title="Visite panoramique 360°">360°</button>
+          <button data-mode-btn="CINEMATIC" title="Cinématique : timeline, plans caméra, clés d'objet">Cinéma</button>
+          <button data-mode-btn="LANDSCAPE" title="Terrain, sculpture et végétation">Paysage</button>
+        </div>
+
+        <!-- Contextual toolbar dispatcher — outils du mode actif, sans rechargement -->
+        <div class="context-tools" data-role="toolbar-dispatcher">
+          <div class="ct-indicator">
+            <span class="ct-ind-label">Mode actif</span>
+            <span class="ct-ind-value" id="ctModeLabel">CAD</span>
+          </div>
+          <div class="ct-body">
+
+            <!-- CAD : architecture, plan, cotation -->
+            <div class="ct-group" data-modes="CAD">
+              <button data-plan-tool="wall">Mur</button>
+              <button data-plan-tool="door">Porte</button>
+              <button data-plan-tool="window">Fenêtre</button>
+              <span class="mt-sep"></span>
+              <button data-ct="measure">Cotation</button>
+              <button data-ct="snap">Grille aimantée</button>
+              <button data-ct="focus">Focus</button>
+            </div>
+
+            <!-- MESH_EDIT : sélection topologique + gizmos + modificateurs -->
+            <div class="ct-group" data-modes="MESH_EDIT">
+              <div class="mt-group">
+                <span class="mt-label">Sélection</span>
+                <button data-mesh-sel="vertex" title="Sélection de sommets (1)"><svg class="ico" viewBox="0 0 16 16" width="14" height="14"><circle cx="8" cy="8" r="3" fill="currentColor"/></svg>Point</button>
+                <button data-mesh-sel="edge" title="Sélection d'arêtes (2)"><svg class="ico" viewBox="0 0 16 16" width="14" height="14"><line x1="2" y1="10" x2="14" y2="4" stroke="currentColor" stroke-width="2"/></svg>Ligne</button>
+                <button data-mesh-sel="face" title="Sélection de faces (3)"><svg class="ico" viewBox="0 0 16 16" width="14" height="14"><rect x="3" y="3" width="10" height="10" rx="1" fill="currentColor" opacity="0.85"/></svg>Face</button>
+              </div>
+              <span class="mt-sep"></span>
+              <div class="mt-group">
+                <button data-mesh-tool="translate" title="Déplacer (W)"><svg class="ico" viewBox="0 0 16 16" width="15" height="15"><path d="M8 2 3 7h3v2H3l5 5 5-5h-3V7h3z" fill="currentColor"/></svg></button>
+                <button data-mesh-tool="rotate" title="Pivoter (cliquer sur l'icône)"><svg class="ico" viewBox="0 0 16 16" width="15" height="15"><path d="M8 2a6 6 0 1 1-5.2 3M8 2v3M2.8 5l3.4 1" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+                <button data-mesh-tool="scale" title="Redimensionner (R)"><svg class="ico" viewBox="0 0 16 16" width="15" height="15"><path d="M2 14 14 2M9 2h5v5M2 7v5H7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+              </div>
+              <span class="mt-sep"></span>
+              <div class="mt-group mt-ops">
+                <button id="meshExtruderBtn" title="Extruder la sélection / la face (E)"><svg class="ico" viewBox="0 0 16 16" width="14" height="14"><rect x="2" y="7" width="12" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.4"/><line x1="8" y1="7" x2="8" y2="3" stroke="currentColor" stroke-width="1.6"/><line x1="8" y1="3" x2="6" y2="5" stroke="currentColor" stroke-width="1.6"/><line x1="8" y1="3" x2="10" y2="5" stroke="currentColor" stroke-width="1.6"/></svg>Extruder</button>
+                <button id="meshBevelBtn2" title="Biseauter (chanfrein)">Biseauter</button>
+              </div>
+            </div>
+
+            <!-- 360° : panorama -->
+            <div class="ct-group" data-modes="PANORAMA_360">
+              <button data-ct="panoramaImport">Importer 360°</button>
+              <button data-ct="panoramaExport">Exporter 360°</button>
+            </div>
+
+            <!-- Cinématique : timeline & caméras -->
+            <div class="ct-group" data-modes="CINEMATIC">
+              <button data-ct="cinePlay">Lire</button>
+              <button data-ct="cinePause">Pause</button>
+              <span class="mt-sep"></span>
+              <button data-ct="cineKey">+ Keyframe</button>
+              <button data-ct="cinePanel">Timeline</button>
+              <button data-ct="cineExport">Exporter vidéo</button>
+            </div>
+
+            <!-- Paysage : terrain & sculpture -->
+            <div class="ct-group" data-modes="LANDSCAPE">
+              <button data-ct="terrain">Créer terrain</button>
+              <span class="mt-sep"></span>
+              <button data-sculpt="raise">Élever</button>
+              <button data-sculpt="lower">Creuser</button>
+              <button data-sculpt="smooth">Lisser</button>
+              <button data-sculpt="flatten">Aplatir</button>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
       <!-- ===== 2. WORKSPACE ===== -->
       <main class="workspace">
 
@@ -128,7 +209,7 @@
             <div class="scene-tree-wrap">
               <div id="objectList" class="scene-tree"></div>
             </div>
-            <div class="subobj-bar">
+            <div class="subobj-bar" data-modes="MESH_EDIT CAD">
               <button class="active" data-subobj="object" title="Mode objet">Obj</button>
               <button data-subobj="vertex" title="Mode sommet">Vert</button>
               <button data-subobj="edge" title="Mode arête">Edge</button>
@@ -188,7 +269,7 @@
           <div id="boxOverlay" class="box-overlay hidden"></div>
 
           <!-- Cinematic Timeline -->
-          <div id="cinePanel" class="cine-panel hidden">
+          <div id="cinePanel" class="cine-panel hidden" data-modes="CINEMATIC">
             <div class="cine-toolbar">
               <span id="cineTime">0.0s / 8.0s</span>
               <button id="cineObjKeyBtn" title="Ajouter une clé d'animation pour l'objet sélectionné">Clé Obj</button>
@@ -473,14 +554,23 @@
                     <button data-add="bench">Banc</button>
                   </div>
                 </div>
+                <div class="library-group" data-modes="CAD MESH_EDIT">
+                  <p>Mes objets (OBJ / FBX / GLB)</p>
+                  <div class="tool-grid">
+                    <button id="importObjBtn">Importer OBJ</button>
+                    <button id="importFbxBtn">Importer FBX</button>
+                    <button id="importTextureBtn">Importer texture</button>
+                  </div>
+                  <div id="customLib" class="tool-grid custom-lib"></div>
+                </div>
               </section>
-              <section>
+              <section data-modes="PANORAMA_360">
                 <h2>Image 360°</h2>
                 <button id="importPanoramaBtn" class="wide">Importer panorama</button>
                 <button id="exportPanoramaBtn" class="wide">Exporter 360°</button>
                 <p id="panoramaStatus" class="hint">Aucune image chargée</p>
               </section>
-              <section>
+              <section data-modes="LANDSCAPE">
                 <h2>Landscape</h2>
                 <button id="createTerrainBtn" class="wide primary">Créer terrain</button>
                 <label>Taille <input id="terrainSize" type="number" min="5" max="100" step="1" value="20" /></label>
@@ -538,7 +628,7 @@
                   <button id="deformBtn">Deform</button>
                 </div>
               </section>
-              <section>
+              <section data-modes="MESH_EDIT CAD">
                 <h2>Mesh Editor</h2>
                 <div class="tool-grid">
                   <button id="meshSubdivideBtn">Subdiviser</button>
@@ -732,6 +822,9 @@
     <input id="planInput" type="file" accept="image/*" hidden />
     <input id="projectInput" type="file" accept=".pix,.inrproject,application/json" hidden />
     <input id="glbInput" type="file" accept=".glb,.gltf" hidden />
+    <input id="objInput" type="file" accept=".obj,.OBJ" hidden />
+    <input id="fbxInput" type="file" accept=".fbx,.FBX" hidden />
+    <input id="textureInput" type="file" accept="image/*" hidden />
 
     <script type="importmap">
       {

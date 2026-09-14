@@ -71,10 +71,139 @@ select { appearance: none; }
    ============================================================ */
 .app-shell {
   display: grid;
-  grid-template-rows: var(--toolbar-h) 1fr var(--status-h);
+  grid-template-rows: var(--toolbar-h) auto 1fr var(--status-h);
   width: 100vw;
   height: 100vh;
 }
+.main-toolbar { grid-row: 1; }
+.mode-strips { grid-row: 2; }
+.workspace { grid-row: 3; }
+.status-bar { grid-row: 4; }
+
+/* ============================================================
+   1b. MODE BAR + TOOLS CONTEXTUELS (architecture modulaire)
+   ============================================================ */
+.modebar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 10px;
+  background: var(--tb-bg);
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.modebar::-webkit-scrollbar { display: none; }
+.modebar-label {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin-right: 6px;
+}
+.modebar button {
+  min-height: 24px;
+  font-weight: 600;
+  border-radius: 99px;
+  padding: 0 14px;
+}
+.modebar button.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 28%, var(--panel-2));
+  color: #fff;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.context-tools {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 5px 10px;
+  background: color-mix(in srgb, var(--panel) 94%, var(--accent) 4%);
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.context-tools::-webkit-scrollbar { display: none; }
+.ct-indicator {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 3px 12px 3px 4px;
+  border-right: 1px solid var(--line);
+  flex: 0 0 auto;
+}
+.ct-ind-label {
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--accent);
+}
+.ct-ind-value {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+}
+.ct-body {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ct-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.mt-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.mt-label {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  padding: 0 8px;
+}
+.mt-group button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 26px;
+  font-size: 11px;
+  padding: 0 10px;
+  border-radius: 6px;
+}
+.mt-group button .ico { display: block; }
+.mt-group button.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 26%, var(--panel-2));
+  color: #fff;
+}
+.mt-group.mt-ops button {
+  border-color: color-mix(in srgb, var(--accent-2) 45%, var(--line));
+  color: var(--accent-2);
+}
+.mt-group.mt-ops button:hover { border-color: var(--accent-2); }
+.mt-sep {
+  width: 1px;
+  height: 24px;
+  background: var(--line);
+  flex: 0 0 auto;
+}
+
+/* Visibilité pilotée par le mode actif (ModeUI) */
+.mode-hidden { display: none !important; }
 
 /* ============================================================
    1. MAIN TOOLBAR
@@ -505,6 +634,18 @@ input[type="range"] {
   color: var(--muted);
   font-size: 11px;
   font-weight: 700;
+}
+
+.custom-lib {
+  margin-top: 6px;
+  max-height: 132px;
+  overflow-y: auto;
+}
+.custom-lib-item {
+  width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .material-grid {
