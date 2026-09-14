@@ -111,6 +111,17 @@
     <div class="geo3d geo-torus" style="width:42px;height:42px;--tdur:19s;right:28%;bottom:14%"></div>
     <div class="geo3d geo-pyramid" style="width:48px;height:48px;--pdur:23s;right:5%;top:8%"></div>
   </div>
+  <script>
+    (function () {
+      var els = document.querySelectorAll('.geo-bg .geo3d, .geo-bg .g');
+      for (var i = 0; i < els.length; i++) {
+        els[i].style.left = (Math.random() * 90).toFixed(1) + '%';
+        els[i].style.top = (Math.random() * 85).toFixed(1) + '%';
+        els[i].style.right = 'auto';
+        els[i].style.bottom = 'auto';
+      }
+    })();
+  </script>
   <div class="login-wrap">
     <div class="login-card">
       <div class="login-logo"><img src="/logo.svg" alt="Iner Studio" style="height:64px;width:auto;margin-bottom:8px;" /></div>

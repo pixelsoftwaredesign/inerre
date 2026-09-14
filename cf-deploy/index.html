@@ -195,6 +195,17 @@
       <div class="geo3d geo-pyramid" style="width:32px;height:32px;--pdur:26s;--pspin:pyramidSpin;right:22%;top:6%"></div>
       <div class="geo3d geo-pyramid" style="width:44px;height:44px;--pdur:15s;left:26%;bottom:6%"></div>
     </div>
+    <script>
+      (function () {
+        var els = document.querySelectorAll('.geo-bg .geo3d, .geo-bg .g');
+        for (var i = 0; i < els.length; i++) {
+          els[i].style.left = (Math.random() * 90).toFixed(1) + '%';
+          els[i].style.top = (Math.random() * 85).toFixed(1) + '%';
+          els[i].style.right = 'auto';
+          els[i].style.bottom = 'auto';
+        }
+      })();
+    </script>
     <!-- Header -->
     <header class="site-header">
       <div class="wrap header-inner">
