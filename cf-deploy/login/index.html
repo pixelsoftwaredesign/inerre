@@ -115,10 +115,13 @@
     (function () {
       var els = document.querySelectorAll('.geo-bg .geo3d, .geo-bg .g');
       for (var i = 0; i < els.length; i++) {
-        els[i].style.left = (Math.random() * 90).toFixed(1) + '%';
-        els[i].style.top = (Math.random() * 85).toFixed(1) + '%';
-        els[i].style.right = 'auto';
-        els[i].style.bottom = 'auto';
+        var e = els[i];
+        e.style.left = (Math.random() * 90).toFixed(1) + '%';
+        e.style.top = (Math.random() * 85).toFixed(1) + '%';
+        e.style.right = 'auto';
+        e.style.bottom = 'auto';
+        var d = parseFloat(getComputedStyle(e).animationDuration);
+        if (!isNaN(d)) e.style.animationDelay = (-Math.random() * d).toFixed(3) + 's';
       }
     })();
   </script>
