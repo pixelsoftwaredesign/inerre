@@ -1,0 +1,112 @@
+# Iner Studio — Full Product Description
+
+## Overview
+
+Iner Studio (by Pixel Software Design) is a comprehensive, free, browser-based 3D interior design and modular architecture application. It enables anyone — from professional interior designers to homeowners — to create, furnish, and visualize interior spaces in real-time 3D directly in their web browser. No installation required.
+
+**URL:** https://iner.pixelsoftwaredesign.xyz/
+**Access:** Free with account (login at https://iner.pixelsoftwaredesign.xyz/login)
+**Technology:** Three.js, WebGL, vanilla JavaScript, Cloudflare Pages
+
+## Core Features
+
+### Room Design & Construction
+- Build rooms from dimensions (width, depth, height)
+- Import 2D floor plans from images, trace walls/doors/windows, and convert to 3D construction
+- Modular architecture: rooms are composable, with walls, doors, windows, stairs as separate elements
+- Real-time 3D viewport with orbit controls, quad view (front/top/left/perspective), and measurement tools
+
+### Furniture Library
+Iner Studio includes a large built-in library of parametric 3D furniture, organized by room type:
+- **Living room:** Sofa, armchair, pouf, coffee table, TV unit, TV
+- **Kitchen:** Fridge, oven, cooktop, washer
+- **Dining:** Dining table, chairs
+- **Bedroom:** Bed (queen), wardrobe, nightstand
+- **Office:** Desk, bookshelf, office chair
+- **Bathroom:** Toilet, sink, shower, bathtub
+- **Structural:** Walls, doors, windows, door handles, window handles, curtains, stairs
+- **Lighting:** Lamps, spotlights
+- **Outdoor:** Plants, trees, flower pots, benches
+
+### Materials & Styles
+- 12+ built-in materials: paint (warm/cool), concrete, reinforced concrete, brick, oak, walnut, tile, glass, metal, fabric, ceramic
+- Style presets: American, European, Industrial (concrete), Mediterranean
+- Custom object color picker
+- Terrain materials: grass, dirt, rock, snow, sand, brick, stone
+
+### Terrain & Nature
+- Create parametric terrain with configurable size and resolution
+- Sculpt terrain: raise, lower, smooth, flatten with adjustable brush
+- Scatter nature elements: grass, shrubs, rocks, trees
+
+### 360° Panoramas
+- Import HDR environment maps and 360° panoramic images
+- Export your scene as a 360° panoramic image
+- View your interior design in immersive VR-ready panoramas
+
+### AI Assistant
+- Built-in AI chat describes and generates rooms from natural language
+- Example prompts: "Salon moderne 20m² avec canapé et table basse", "Cuisine ouverte 12m² avec îlot central"
+- AI generates variant proposals to choose from
+
+### Cinematic Timeline
+- Record camera keyframes to create cinematic walkthroughs
+- Object animation keyframes (position, rotation, scale)
+- Loop playback, real-time time display
+- Export animation as WebM video
+
+### 3D Modeling Tools
+- Move, rotate, scale with transform gizmos
+- Sub-object editing: vertex, edge, face modes
+- Boolean CSG operations (union, subtract, intersect)
+- Mesh operations: subdivide, extrude, bevel, smooth, mirror, weld, collapse
+- Array tool: linear, grid, circle, curve arrays
+- Mirror, snap grid, measurement tool
+- Object linking and clustering
+
+### Import/Export
+- Save/load .pix project files (JSON-based)
+- Export OBJ (Wavefront)
+- Export GLB (glTF Binary) — compatible with Blender, Unity, Unreal Engine
+- Import GLB models
+
+### Collaboration & Workflow
+- Undo/redo with snapshots
+- Object visibility toggling
+- Scene hierarchy with collapsible tree
+- Status bar with coordinates, mode display, and contextual hints
+
+## Use Cases
+
+1. **Interior Design:** Create a room, furnish it, apply materials, and visualize the result in 3D
+2. **Home Renovation:** Import your floor plan, convert to 3D, test different furniture layouts
+3. **Architecture Presentation:** Create cinematic walkthroughs of your design
+4. **Real Estate Staging:** Quickly furnish empty rooms for client presentations
+5. **Education:** Learn 3D design concepts in an accessible browser tool
+6. **Modular Architecture:** Design modular spaces with composable elements
+
+## Keywords
+
+interior design, 3D design, room planner, furniture placement, modular architecture, 3D architecture, home design, kitchen design, bathroom design, bedroom design, office design, floor plan, 3D visualization, 360 panorama, WebGL, Three.js, browser-based 3D, online 3D editor, interior decoration, architecture innovation, modular 3D design, spatial planning, 3D modeling, OBJ export, GLB export, free interior design tool, design 3D intérieur, aménagement intérieur, architecture modulaire, mobilier 3D
+
+## Technical Specifications
+
+- **Rendering:** WebGL with Three.js (real-time shadows, PBR materials)
+- **Lighting:** HDR environment maps, ambient + directional lights
+- **Performance:** Optimized for modern browsers, supports 60fps viewport
+- **File Format:** .pix (JSON), OBJ, GLB
+- **Platform:** Web (Chrome, Firefox, Safari, Edge)
+- **Backend:** Cloudflare Pages with Workers (auth via KV storage)
+
+## Company
+
+Pixel Software Design — https://pixelsoftwaredesign.xyz/
+A software company specializing in web-based 3D applications and interior design innovation.
+
+## Links
+
+- Application: https://iner.pixelsoftwaredesign.xyz/studio/
+- Landing page: https://iner.pixelsoftwaredesign.xyz/
+- Login: https://iner.pixelsoftwaredesign.xyz/login
+- GitHub repository: https://github.com/pixelsoftwaredesign/inerre
+- Company website: https://pixelsoftwaredesign.xyz/

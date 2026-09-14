@@ -126,6 +126,17 @@ a:hover { color: #4fd3ba; text-decoration: underline; }
   grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
   gap: 16px;
 }
+.grid-3 {
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+.section-intro {
+  max-width: 720px;
+  margin: 0 auto 32px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.7;
+}
 .card {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -168,6 +179,37 @@ a:hover { color: #4fd3ba; text-decoration: underline; }
 .cta h2 { margin-bottom: 8px; }
 .cta p { color: var(--muted); margin: 0 0 22px; }
 .cta .hero-note { margin-top: 18px; }
+
+/* FAQ */
+.faq-list { max-width: 720px; margin: 0 auto; display: grid; gap: 8px; }
+.faq-item {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  overflow: hidden;
+}
+.faq-item summary {
+  padding: 14px 18px;
+  font-weight: 600;
+  font-size: 15px;
+  cursor: pointer;
+  list-style: none;
+  color: var(--text);
+}
+.faq-item summary::before {
+  content: "+ ";
+  color: var(--accent);
+  font-weight: 700;
+}
+.faq-item[open] summary::before { content: "− "; }
+.faq-item summary::-webkit-details-marker { display: none; }
+.faq-item p {
+  margin: 0;
+  padding: 0 18px 14px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
 
 /* Footer */
 .site-footer { border-top: 1px solid var(--line); padding: 28px 0 0; }

@@ -1,6 +1,6 @@
 const MAIN_SITE = "https://pixelsoftwaredesign.onrender.com";
 
-const PUBLIC_PATHS = ["/", "/robots.txt", "/sitemap.xml", "/login", "/login/", "/api/login", "/api/logout", "/api/health"];
+const PUBLIC_PATHS = ["/", "/robots.txt", "/sitemap.xml", "/llms.txt", "/llms-full.txt", "/login", "/login/", "/api/login", "/api/logout", "/api/health"];
 
 const AUTHCSS_PATHS = ["/favicon.ico", "/favicon.svg", "/logo.svg", "/styles.css"];
 

@@ -1,0 +1,39 @@
+# Iner Studio — 3D Interior Design & Modular Architecture
+
+Iner Studio is a free, browser-based 3D interior design application built by Pixel Software Design. It allows users to design, furnish, and visualize interior spaces in real-time 3D and 360° panoramas.
+
+## What it does
+
+- Design rooms from scratch (width/depth/height) or import 2D floor plans and convert them to 3D
+- Furnish spaces with a large built-in library: sofas, tables, beds, kitchens, bathrooms, offices, lighting, stairs, plants, outdoor furniture
+- Apply realistic materials: concrete, oak, walnut, brick, glass, metal, fabric, ceramic, tile, paint
+- Sculpt terrain and add nature elements (grass, shrubs, rocks, trees)
+- Import 360° panoramic images and place your 3D scene inside them
+- AI assistant generates rooms and furniture from natural language descriptions
+- Cinematic timeline with camera keyframes for walkthrough animations
+- Export projects as OBJ or GLB for use in professional 3D tools
+- Save and load .pix project files
+- Measure distances, boolean CSG operations, mesh editing (subdivide, extrude, bevel, smooth)
+- Modifier stack, undo/redo, snap grid, quad viewport, screenshots
+
+## For whom
+
+- Interior designers and architects
+- Homeowners visualizing renovations
+- Students learning 3D design
+- Anyone wanting to plan and visualize a room layout in 3D
+
+## Tech
+
+Web app built with Three.js, vanilla JavaScript, Cloudflare Pages. Supports WebGL rendering, real-time shadows, PBR materials, and HDR lighting.
+
+## Links
+
+- App: https://iner.pixelsoftwaredesign.xyz/studio/
+- Login: https://iner.pixelsoftwaredesign.xyz/login
+- Company: https://pixelsoftwaredesign.xyz/
+- GitHub: https://github.com/pixelsoftwaredesign/inerre
+
+## Contact
+
+Pixel Software Design — https://pixelsoftwaredesign.xyz/

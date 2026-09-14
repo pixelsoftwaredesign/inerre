@@ -4,4 +4,27 @@ Allow: /
 Disallow: /api/
 Disallow: /studio/
 
+# AI crawlers — Iner Studio welcomes AI indexing
+User-agent: GPTBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: anthropic-ai
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: YouBot
+Allow: /
+
 Sitemap: https://iner.pixelsoftwaredesign.xyz/sitemap.xml
+LLMs: https://iner.pixelsoftwaredesign.xyz/llms.txt
