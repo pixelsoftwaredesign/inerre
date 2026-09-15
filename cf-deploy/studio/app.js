@@ -19,6 +19,15 @@ import { applyModeVisibility } from "./src/ui/ModeUI.js";
 import { MeshEditMode, ensureIndexedGeometry as ensureIndexedGeometryHelper, buildSubData as buildSubDataHelper } from "./src/modes/MeshEditMode.js";
 import { CadMode } from "./src/modes/CadMode.js";
 import { Panorama360Mode } from "./src/modes/Panorama360Mode.js";
+
+const GRID_THEMES = {
+  classic: { center: 0x4f6660, grid: 0x2c3436 },
+  tech: { center: 0x3b82f6, grid: 0x334155 },
+  dark: { center: 0x64748b, grid: 0x1e293b },
+  contrast: { center: 0x4ade80, grid: 0x52525b },
+};
+const HL_HOVER = 0x38bdf8;
+const HL_SELECTED = 0xf59e0b;
 import { CinematicMode } from "./src/modes/CinematicMode.js";
 import { LandscapeMode } from "./src/modes/LandscapeMode.js";
 import { SculptMode } from "./src/modes/SculptMode.js";
@@ -930,6 +939,8 @@ const state = {
   },
   selectionMode: "point",
   showGrid: true,
+  gridTheme: "classic",
+  gridSize: 40,
   envPreset: "",
   selectionFilter: "all",
   subObjectLevel: "object",
@@ -1130,6 +1141,8 @@ controls.target.set(0, 1.3, 0);
 const transformControls = new TransformControls(camera, renderer.domElement);
 transformControls.addEventListener("dragging-changed", (event) => {
   controls.enabled = !event.value;
+  gizmoDragging = event.value;
+  if (event.value) hoverId = null;
 });
 transformControls.addEventListener("objectChange", () => {
   const object = transformControls.object;
@@ -1189,6 +1202,10 @@ const landscapeGroup = new THREE.Group();
 scene.add(root, roomGroup, objectGroup, landscapeGroup);
 
 let gridHelper = null;
+let hoverId = null;
+let gizmoDragging = false;
+let hlReg = new Map();
+let hlLastSig = "";
 let vpFrontCam = null, vpTopCam = null, vpLeftCam = null;
 let lightManager = null;
 let camManager = null;
@@ -2914,6 +2931,20 @@ function clearVegetation() {
   scatterVegetation("clear");
 }
 
+function buildGrid(size = state.gridSize || 40, divisions = state.gridSize || 40) {
+  if (gridHelper) {
+    scene.remove(gridHelper);
+    gridHelper.geometry.dispose();
+    gridHelper.material.dispose();
+  }
+  const t = GRID_THEMES[state.gridTheme] || GRID_THEMES.classic;
+  gridHelper = new THREE.GridHelper(size, divisions, t.center, t.grid);
+  gridHelper.position.y = 0.01;
+  gridHelper.visible = state.showGrid;
+  scene.add(gridHelper);
+  if (__sceneManager) __sceneManager.gridHelper = gridHelper;
+}
+
 function initLighting() {
   lightManager = new LightManager(scene, state.render);
   camManager = new CameraManager(camera, {
@@ -2932,9 +2963,7 @@ function initLighting() {
       return null;
     },
   });
-  gridHelper = new THREE.GridHelper(40, 40, 0x4f6660, 0x2c3436);
-  gridHelper.position.y = 0.01;
-  scene.add(gridHelper);
+  buildGrid();
 }
 
 function syncLightsFromState() {
@@ -3194,11 +3223,7 @@ function buildRoom() {
 
   if (gridHelper) {
     const maxDim = Math.max(width, depth) + 4;
-    scene.remove(gridHelper);
-    gridHelper = new THREE.GridHelper(maxDim, Math.round(maxDim / 0.5), 0x4f6660, 0x2c3436);
-    gridHelper.position.y = 0.01;
-    gridHelper.visible = state.showGrid;
-    scene.add(gridHelper);
+    buildGrid(maxDim, Math.max(1, Math.round(maxDim / 0.5)));
   }
   if (state.room.fromPlan) return;
 
@@ -3378,14 +3403,12 @@ function bindUI() {
     if (state.snap.enabled) applySnap();
   });
   document.querySelector("#gridSizeSelect").addEventListener("change", (e) => {
-    const s = parseInt(e.target.value);
-    if (gridHelper) {
-      scene.remove(gridHelper);
-      gridHelper = new THREE.GridHelper(s, s, 0x4f6660, 0x2c3436);
-      gridHelper.position.y = 0.01;
-      gridHelper.visible = state.showGrid;
-      scene.add(gridHelper);
-    }
+    state.gridSize = parseInt(e.target.value);
+    buildGrid(state.gridSize, state.gridSize);
+  });
+  document.querySelector("#gridThemeSelect").addEventListener("change", (e) => {
+    state.gridTheme = e.target.value;
+    buildGrid();
   });
 
   document.querySelector("#createTerrainBtn").addEventListener("click", createTerrain);
@@ -3477,6 +3500,8 @@ function bindUI() {
   dom.glbInput.addEventListener("change", importGLB);
 
   renderer.domElement.addEventListener("pointerdown", selectFromPointer);
+  renderer.domElement.addEventListener("pointermove", updateHover);
+  renderer.domElement.addEventListener("pointerleave", resetHover);
   renderer.domElement.addEventListener("pointerdown", startBoxSelect);
   renderer.domElement.addEventListener("pointermove", moveBoxSelect);
   renderer.domElement.addEventListener("pointerup", endBoxSelect);
@@ -4822,6 +4847,33 @@ function colorFor(type) {
   }[type] || "#8aa0a6";
 }
 
+let hoverThrottle = 0;
+
+function updateHover(event) {
+  if (!hoverVisible()) {
+    if (hoverId) hoverId = null;
+    return;
+  }
+  const now = performance.now();
+  if (now - hoverThrottle < 40) return;
+  hoverThrottle = now;
+  const bounds = renderer.domElement.getBoundingClientRect();
+  const pointer = new THREE.Vector2(
+    ((event.clientX - bounds.left) / bounds.width) * 2 - 1,
+    -((event.clientY - bounds.top) / bounds.height) * 2 + 1
+  );
+  const raycaster = new THREE.Raycaster();
+  raycaster.setFromCamera(pointer, getActiveCamera());
+  const hits = raycaster.intersectObjects(objectGroup.children, true);
+  let id = null;
+  if (hits.length) {
+    let o = hits[0].object;
+    while (o && o !== objectGroup && !o.userData?.id) o = o.parent;
+    if (o && o.userData?.id && findSpec(o.userData.id)) id = o.userData.id;
+  }
+  hoverId = id;
+}
+
 function selectFromPointer(event) {
   if (measureActive) return;
   if (state.selectionMode !== "point") return;
@@ -5081,6 +5133,117 @@ function findSpec(id) {
 
 function primaryId() {
   return state.selectedIds.length ? state.selectedIds[state.selectedIds.length - 1] : null;
+}
+
+function hoverEnabled() {
+  if (!__engine?.active) return true;
+  const active = __engine.active.id;
+  return active !== "SCULPT" && active !== "MESH_EDIT";
+}
+
+function hoverVisible() {
+  return state.mode === "model" && state.selectionMode === "point" &&
+    !measureActive && !state.boolean.active && !state.draw.active &&
+    !state.deform.active && !gizmoDragging && hoverEnabled();
+}
+
+function resetHover() {
+  hoverId = null;
+}
+
+function collectRenderable(root) {
+  const out = [];
+  root.traverse((c) => {
+    if (c.isMesh && c.material && c.visible) out.push(c);
+  });
+  return out;
+}
+
+function snapshotMaterial(m, prev) {
+  if (m.emissive) {
+    prev.emissive = m.emissive.getHex();
+    prev.emissiveIntensity = m.emissiveIntensity;
+  }
+  if (m.color) prev.color = m.color.getHex();
+}
+
+function restoreMaterial(m, prev) {
+  if (prev.emissive != null && m.emissive) m.emissive.setHex(prev.emissive);
+  if (prev.emissiveIntensity != null) m.emissiveIntensity = prev.emissiveIntensity;
+  if (prev.color != null && m.color) m.color.setHex(prev.color);
+}
+
+function tintRoot(root, hex) {
+  const meshes = collectRenderable(root);
+  if (!meshes.length) return;
+  const matRefs = [];
+  for (const mesh of meshes) {
+    const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    for (const m of mats) {
+      if (!m || m.userData.inerHighlight) continue;
+      const prev = {};
+      if (m.emissive) {
+        snapshotMaterial(m, prev);
+        m.emissive.setHex(hex);
+        m.emissiveIntensity = 0.5;
+      } else if (m.color) {
+        snapshotMaterial(m, prev);
+        m.color.setHex(hex);
+      }
+      m.userData.inerHighlight = true;
+      m.needsUpdate = true;
+      matRefs.push({ m, prev });
+    }
+  }
+  hlReg.set(root.uuid, matRefs);
+}
+
+function clearHighlight(root) {
+  const matRefs = hlReg.get(root.uuid);
+  if (!matRefs) return;
+  for (const { m, prev } of matRefs) {
+    restoreMaterial(m, prev);
+    delete m.userData.inerHighlight;
+    m.needsUpdate = true;
+  }
+  hlReg.delete(root.uuid);
+}
+
+function clearAllHighlights() {
+  for (const key of [...hlReg.keys()]) {
+    const mesh = objectGroup.getObjectByProperty("uuid", key);
+    if (mesh) clearHighlight(mesh);
+    else {
+      for (const { m, prev } of hlReg.get(key)) {
+        restoreMaterial(m, prev);
+        delete m.userData.inerHighlight;
+      }
+      hlReg.delete(key);
+    }
+  }
+}
+
+function applyHighlightState() {
+  if (state.mode === "plan") {
+    if (hlReg.size) clearAllHighlights();
+    return;
+  }
+  const roots = [];
+  const ids = [...state.selectedIds];
+  for (const id of ids) {
+    const m = findMesh(id);
+    if (m) roots.push({ mesh: m, hex: HL_SELECTED });
+  }
+  const hoverOn = hoverVisible() && hoverId && !ids.includes(hoverId);
+  if (hoverOn) {
+    const m = findMesh(hoverId);
+    if (m) roots.push({ mesh: m, hex: HL_HOVER });
+  }
+  const sig = roots.map((r) => r.mesh.uuid + (r.hex === HL_HOVER ? "H" : "S")).join(",");
+  if (sig === hlLastSig) return;
+  clearAllHighlights();
+  for (const r of roots) tintRoot(r.mesh, r.hex);
+  hlLastSig = sig;
 }
 
 function layerOfType(type) {
@@ -5453,6 +5616,13 @@ function newProject() {
   document.querySelectorAll("[data-sel-mode]").forEach((btn) => btn.classList.toggle("active", btn.dataset.selMode === "point"));
   document.querySelector("#boxSelectBtn")?.classList.remove("active");
   state.showGrid = true;
+  state.gridTheme = "classic";
+  state.gridSize = 40;
+  const themeSel = document.querySelector("#gridThemeSelect");
+  if (themeSel) themeSel.value = state.gridTheme;
+  const gSizeSel = document.querySelector("#gridSizeSelect");
+  if (gSizeSel) gSizeSel.value = state.gridSize;
+  buildGrid();
   landscapeGroup.clear();
   state.landscape.mesh = null;
   document.querySelector("#booleanStatus").classList.add("hidden");
@@ -5545,6 +5715,8 @@ function toProjectJSON() {
     } : null,
     snap: state.snap,
     showGrid: state.showGrid,
+    gridTheme: state.gridTheme,
+    gridSize: state.gridSize,
     envPreset: state.envPreset || "",
     cine: cineData(),
   };
@@ -5661,6 +5833,15 @@ function loadProject(project, fileName) {
     if (gridHelper) gridHelper.visible = state.showGrid;
     document.querySelector("#gridBtn").classList.toggle("active", state.showGrid);
   }
+
+  if (project.gridTheme != null) {
+    state.gridTheme = GRID_THEMES[project.gridTheme] ? project.gridTheme : "classic";
+    const themeSel = document.querySelector("#gridThemeSelect");
+    if (themeSel) themeSel.value = state.gridTheme;
+  }
+  if (project.gridSize != null) state.gridSize = project.gridSize;
+  if (document.querySelector("#gridSizeSelect")) document.querySelector("#gridSizeSelect").value = state.gridSize;
+  buildGrid();
 
   if (project.envPreset) {
     state.envPreset = project.envPreset;
@@ -8001,6 +8182,7 @@ function animate() {
   if (state.cine.playing) cineTick(dt);
   if (__engine) __engine.update(dt, state.anim.t);
   updateParticles(dt);
+  applyHighlightState();
   controls.update();
   panoControls.update();
   if (quadViewActive && vpFrontCam && vpTopCam && vpLeftCam) {
@@ -8060,5 +8242,5 @@ function escapeHTML(value) {
 }
 
 if (new URLSearchParams(location.search).get("debug") === "1") {
-  window.__iner = { state, toProjectJSON, loadProject, createMesh, registerImported, renderCustomLibrary, addCustomInstance, engine: __engine, sceneManager: __sceneManager, meshEditMode: meshEditObj, sculptMode: sculptModeObj, setMode, setParticleEffect, setCamMode, toggleRenderLightPanel, syncLightsFromState, syncPanoCamera, renderPanoramaImage, exportPanorama, sun: lightManager ? lightManager.lights.sun : null };
+  window.__iner = { state, toProjectJSON, loadProject, createMesh, registerImported, renderCustomLibrary, addCustomInstance, engine: __engine, sceneManager: __sceneManager, meshEditMode: meshEditObj, sculptMode: sculptModeObj, setMode, setParticleEffect, setCamMode, toggleRenderLightPanel, syncLightsFromState, syncPanoCamera, renderPanoramaImage, exportPanorama, buildGrid, GRID_THEMES, applyHighlightState, setHoverId: (id) => { hoverId = id; }, sun: lightManager ? lightManager.lights.sun : null };
 }
