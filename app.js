@@ -1107,6 +1107,14 @@ const dom = {
   vpDividerV: document.querySelector("#vpDividerV"),
   quadViewBtn: document.querySelector("#quadViewBtn"),
   modifierStack: document.querySelector("#modifierStack"),
+  undoBtn: document.querySelector("#undoBtn"),
+  redoBtn: document.querySelector("#redoBtn"),
+  cloudStatus: document.querySelector("#cloudStatus"),
+  cloudSaveBtn: document.querySelector("#cloudSaveBtn"),
+  cloudLoadBtn: document.querySelector("#cloudLoadBtn"),
+  cloudNewBtn: document.querySelector("#cloudNewBtn"),
+  cloudProjectList: document.querySelector("#cloudProjectList"),
+  shortcutModal: document.querySelector("#shortcutModal"),
 };
 
 const scene = new THREE.Scene();
@@ -1208,6 +1216,7 @@ let hlReg = new Map();
 let hlLastSig = "";
 let selectionBox = null;
 let clipboardSpecs = [];
+let cloudAgent = { user: null, projectId: null, timer: null };
 let vpFrontCam = null, vpTopCam = null, vpLeftCam = null;
 let lightManager = null;
 let camManager = null;
@@ -1235,6 +1244,114 @@ let sculptModeObj = null;
  * pièce par défaut, UI+modes (Engine), transformation & sélection, puis lance
  * la boucle d'animation et le mobilier de départ.
  */
+function toggleShortcutHelp() {
+  if (!dom.shortcutModal) return;
+  dom.shortcutModal.classList.toggle("hidden");
+}
+
+function updateUndoUI() {
+  const u = state.undo;
+  const canUndoNow = u.index > 0;
+  const canRedoNow = u.index < u.history.length - 1;
+  if (dom.undoBtn) dom.undoBtn.disabled = !canUndoNow;
+  if (dom.redoBtn) dom.redoBtn.disabled = !canRedoNow;
+}
+
+async function refreshCloudStatus() {
+  try {
+    const resp = await fetch("/api/session", { credentials: "same-origin" });
+    if (resp.ok) {
+      const data = await resp.json();
+      const user = data?.user || data;
+      cloudAgent.user = user;
+      const email = (user.email || user.username || "").toLowerCase();
+      if (dom.cloudStatus) dom.cloudStatus.textContent = `Cloud : ${email || "connecté"}`;
+      try { const map = JSON.parse(localStorage.getItem("iner_cloud_proj") || "{}"); cloudAgent.projectId = map[email] || null; } catch (e) { cloudAgent.projectId = null; }
+      return;
+    }
+  } catch (e) {}
+  cloudAgent.user = null;
+  cloudAgent.projectId = null;
+  if (dom.cloudStatus) dom.cloudStatus.textContent = "Cloud : non connecté";
+}
+
+function cloudMarkDirty() {
+  if (!cloudAgent.user) return;
+  clearTimeout(cloudAgent.timer);
+  cloudAgent.timer = setTimeout(() => saveToCloud(false), 2000);
+}
+
+async function saveToCloud(force) {
+  if (!cloudAgent.user) {
+    if (force && dom.cloudStatus) { dom.cloudStatus.textContent = "Cloud : connectez-vous d'abord"; setTimeout(() => refreshCloudStatus(), 2000); }
+    return;
+  }
+  clearTimeout(cloudAgent.timer);
+  const payload = { name: state.name || "Projet sans nom", data: toProjectJSON() };
+  try {
+    let resp;
+    if (cloudAgent.projectId) {
+      resp = await fetch(`/api/projects/${cloudAgent.projectId}`, { method: "PUT", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    } else {
+      resp = await fetch("/api/projects", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      if (resp.ok) { const result = await resp.json(); cloudAgent.projectId = result.id; }
+    }
+    if (dom.cloudStatus) {
+      if (resp.ok) dom.cloudStatus.textContent = `Cloud : ${cloudAgent.user.email || "sauvé"} ✓`;
+      else dom.cloudStatus.textContent = "Cloud : erreur de sauvegarde";
+    }
+  } catch (e) {
+    if (dom.cloudStatus) dom.cloudStatus.textContent = "Cloud : hors ligne";
+  }
+  persistCloudMapping();
+}
+
+function persistCloudMapping() {
+  if (!cloudAgent.user || !cloudAgent.projectId) return;
+  try { const map = JSON.parse(localStorage.getItem("iner_cloud_proj") || "{}"); map[(cloudAgent.user.email || "").toLowerCase()] = cloudAgent.projectId; localStorage.setItem("iner_cloud_proj", JSON.stringify(map)); } catch (e) {}
+}
+
+async function newCloudProject() {
+  if (!cloudAgent.user) { await refreshCloudStatus(); if (!cloudAgent.user) return; }
+  try {
+    const resp = await fetch("/api/projects", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: state.name || "Projet sans nom", data: toProjectJSON() }) });
+    if (resp.ok) { const r = await resp.json(); cloudAgent.projectId = r.id; persistCloudMapping(); if (dom.cloudStatus) dom.cloudStatus.textContent = `Cloud : ${cloudAgent.user.email || "nouveau"} ✓`; }
+  } catch (e) {}
+}
+
+async function loadCloudList() {
+  if (!cloudAgent.user) { await refreshCloudStatus(); if (!cloudAgent.user) return; }
+  if (!dom.cloudProjectList) return;
+  try {
+    const resp = await fetch("/api/projects", { credentials: "same-origin" });
+    if (!resp.ok) return;
+    const { projects } = await resp.json();
+    dom.cloudProjectList.innerHTML = "";
+    if (!projects?.length) { dom.cloudProjectList.innerHTML = "<div style='font-size:11px;color:var(--muted);padding:4px;'>Aucun projet en ligne</div>"; dom.cloudProjectList.classList.remove("hidden"); return; }
+    projects.forEach((proj) => {
+      const btn = document.createElement("button");
+      btn.innerHTML = `<span class="cloud-pname">${proj.name || "Projet"}</span><span class="cloud-pdate">${proj.updatedAt ? new Date(proj.updatedAt).toLocaleDateString() : ""}</span>`;
+      btn.addEventListener("click", async () => {
+        try { const r = await fetch(`/api/projects/${proj.id}`, { credentials: "same-origin" }); if (!r.ok) return; const { data, name } = await r.json(); loadProject(data, (name || "cloud") + ".pix"); cloudAgent.projectId = proj.id; persistCloudMapping(); if (dom.cloudStatus) dom.cloudStatus.textContent = `Cloud : ${name} ✓`; dom.cloudProjectList.classList.add("hidden"); } catch (e) {}
+      });
+      dom.cloudProjectList.appendChild(btn);
+    });
+    dom.cloudProjectList.classList.toggle("hidden");
+  } catch (e) {}
+}
+
+function initCloudUI() {
+  dom.undoBtn?.addEventListener("click", undo);
+  dom.redoBtn?.addEventListener("click", redo);
+  document.getElementById("shortcutCloseBtn")?.addEventListener("click", toggleShortcutHelp);
+  dom.shortcutModal?.addEventListener("click", (e) => { if (e.target.id === "shortcutModal") toggleShortcutHelp(); });
+  dom.cloudSaveBtn?.addEventListener("click", () => saveToCloud(true));
+  dom.cloudLoadBtn?.addEventListener("click", loadCloudList);
+  dom.cloudNewBtn?.addEventListener("click", newCloudProject);
+  refreshCloudStatus();
+  updateUndoUI();
+}
+
 function initStudio() {
   initLighting();
   initQuadView();
@@ -1248,6 +1365,7 @@ function initStudio() {
   animate();
   addDefaultFurniture();
   updatePipeline();
+  initCloudUI();
   window.__INERRE_BOOTED = true;
 }
 
@@ -3610,7 +3728,16 @@ function bindUI() {
   window.addEventListener("keydown", (event) => {
     if (event.key === "Escape") hideCtxMenu();
     if (event.ctrlKey || event.metaKey) {
-      if (event.key === "z" && !event.shiftKey) {
+      if (event.key === "s" && !event.shiftKey) {
+        event.preventDefault();
+        saveProject();
+      } else if (event.key === "o") {
+        event.preventDefault();
+        dom.projectInput.click();
+      } else if (event.key === "n" && !event.shiftKey) {
+        event.preventDefault();
+        if (window.confirm("Créer un nouveau projet ? Les changements non sauvegardés seront perdus.")) newProject();
+      } else if (event.key === "z" && !event.shiftKey) {
         event.preventDefault();
         undo();
       } else if ((event.key === "z" && event.shiftKey) || event.key === "y") {
@@ -3888,11 +4015,24 @@ const primary = primaryId();
     });
   });
 
-  // Keyboard shortcuts: Q/W/E/R + Space + Alt+W
+  // Keyboard shortcuts: Q/W/E/R + Space + Alt+W + F/G/1/2/F1/?
   window.addEventListener("keydown", (event) => {
     if (event.target?.tagName === "INPUT" || event.target?.tagName === "TEXTAREA" || event.target?.tagName === "SELECT") return;
     const key = event.key.toLowerCase();
     const inMeshEdit = __engine?.active?.id === "MESH_EDIT";
+    if (event.key === "F1" || (key === "?" && !event.ctrlKey && !event.metaKey && !event.altKey)) {
+      event.preventDefault();
+      toggleShortcutHelp();
+      return;
+    }
+    if (event.altKey && !event.ctrlKey && !event.metaKey) {
+      if (key === "1") { event.preventDefault(); __engine?.setActiveMode("CAD"); }
+      else if (key === "2") { event.preventDefault(); __engine?.setActiveMode("MESH_EDIT"); }
+      else if (key === "3") { event.preventDefault(); __engine?.setActiveMode("SCULPT"); }
+      else if (key === "4") { event.preventDefault(); __engine?.setActiveMode("LANDSCAPE"); }
+      else if (key === "w") { event.preventDefault(); toggleQuadView(); }
+      return;
+    }
     if (!event.ctrlKey && !event.metaKey && !event.altKey) {
       if (inMeshEdit && key === "1") { event.preventDefault(); setSubObjectLevel("vertex"); }
       else if (inMeshEdit && key === "2") { event.preventDefault(); setSubObjectLevel("edge"); }
@@ -3902,11 +4042,11 @@ const primary = primaryId();
       else if (key === "w") { event.preventDefault(); setTransformTool("translate"); }
       else if (!inMeshEdit && key === "e") { event.preventDefault(); setTransformTool("rotate"); }
       else if (key === "r") { event.preventDefault(); setTransformTool("scale"); }
+      else if (key === "g") { event.preventDefault(); setTransformTool("translate"); }
+      else if (key === "f") { event.preventDefault(); focusCamera(); }
+      else if (!inMeshEdit && key === "1") { event.preventDefault(); setCamMode("persp"); }
+      else if (!inMeshEdit && key === "2") { event.preventDefault(); setCamMode("ortho"); }
       else if (key === " ") { event.preventDefault(); setTransformTool("select"); }
-    }
-    if (event.altKey && key === "w") {
-      event.preventDefault();
-      toggleQuadView();
     }
   });
 
@@ -7643,6 +7783,8 @@ function pushUndo() {
   u.history.push(snapshot);
   if (u.history.length > u.max) u.history.shift();
   u.index = u.history.length - 1;
+  updateUndoUI();
+  cloudMarkDirty();
 }
 
 function undo() {
@@ -7650,6 +7792,8 @@ function undo() {
   if (u.index <= 0) return;
   u.index--;
   restoreSnapshot(u.history[u.index]);
+  updateUndoUI();
+  cloudMarkDirty();
 }
 
 function redo() {
@@ -7657,6 +7801,8 @@ function redo() {
   if (u.index >= u.history.length - 1) return;
   u.index++;
   restoreSnapshot(u.history[u.index]);
+  updateUndoUI();
+  cloudMarkDirty();
 }
 
 function restoreSnapshot(snapshot) {
@@ -8346,5 +8492,5 @@ function escapeHTML(value) {
 }
 
 if (new URLSearchParams(location.search).get("debug") === "1") {
-  window.__iner = { state, toProjectJSON, loadProject, createMesh, registerImported, renderCustomLibrary, addCustomInstance, copySelected, pasteClipboard, deleteSelected, duplicateSelected, engine: __engine, sceneManager: __sceneManager, meshEditMode: meshEditObj, sculptMode: sculptModeObj, setMode, setParticleEffect, setCamMode, toggleRenderLightPanel, syncLightsFromState, syncPanoCamera, renderPanoramaImage, exportPanorama, buildGrid, GRID_THEMES, applyHighlightState, updateSelectionBox, setHoverId: (id) => { hoverId = id; }, sun: lightManager ? lightManager.lights.sun : null };
+  window.__iner = { state, toProjectJSON, loadProject, createMesh, registerImported, renderCustomLibrary, addCustomInstance, copySelected, pasteClipboard, deleteSelected, duplicateSelected, engine: __engine, sceneManager: __sceneManager, meshEditMode: meshEditObj, sculptMode: sculptModeObj, setMode, setParticleEffect, setCamMode, toggleRenderLightPanel, syncLightsFromState, syncPanoCamera, renderPanoramaImage, exportPanorama, buildGrid, GRID_THEMES, applyHighlightState, updateSelectionBox, setHoverId: (id) => { hoverId = id; }, sun: lightManager ? lightManager.lights.sun : null, saveToCloud, loadCloudList, newCloudProject, refreshCloudStatus, cloudAgent, pushUndo, undo, redo };
 }

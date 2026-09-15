@@ -47,6 +47,9 @@
           </div>
           <input id="projectNameInput" class="project-name-input" value="Projet sans titre" />
           <span id="projectMeta">.pix</span>
+          <span class="toolbar-sep"></span>
+          <button id="undoBtn" title="Annuler (Ctrl+Z)" class="toolbar-btn">↩</button>
+          <button id="redoBtn" title="Rétablir (Ctrl+Y)" class="toolbar-btn">↪</button>
         </div>
 
         <div class="toolbar-center">
@@ -830,11 +833,61 @@
                   <button id="importGLBBtn">Import GLB</button>
                 </div>
               </section>
+              <section class="cloud-section">
+                <h2>Cloud</h2>
+                <div id="cloudStatus" class="cloud-status">Cloud : non connecté</div>
+                <div class="tool-grid">
+                  <button id="cloudSaveBtn">💾 Sauver</button>
+                  <button id="cloudLoadBtn">📥 Charger</button>
+                  <button id="cloudNewBtn">＋ Nouveau</button>
+                </div>
+                <div id="cloudProjectList" class="cloud-list hidden"></div>
+              </section>
             </div>
 
           </div>
         </aside>
       </main>
+
+      <!-- Keyboard shortcuts help modal -->
+      <div id="shortcutModal" class="help-modal hidden">
+        <div class="help-modal-box" role="dialog" aria-label="Raccourcis clavier">
+          <div class="help-modal-head">
+            <strong>Raccourcis clavier</strong>
+            <button id="shortcutCloseBtn" class="help-modal-close" title="Fermer">✕</button>
+          </div>
+          <div class="help-modal-grid">
+            <div class="help-section-title">Fichier</div>
+            <div class="shortcut-item"><kbd>Ctrl+S</kbd> Sauvegarder (.pix ou Cloud)</div>
+            <div class="shortcut-item"><kbd>Ctrl+N</kbd> Nouveau projet</div>
+            <div class="shortcut-item"><kbd>Ctrl+O</kbd> Ouvrir un .pix</div>
+            <div class="shortcut-item"><kbd>Ctrl+Z</kbd> Annuler</div>
+            <div class="shortcut-item"><kbd>Ctrl+Y / Ctrl+Shift+Z</kbd> Rétablir</div>
+            <div class="shortcut-item"><kbd>Ctrl+D</kbd> Dupliquer la sélection</div>
+            <div class="shortcut-item"><kbd>Ctrl+C / Ctrl+V</kbd> Copier / Coller</div>
+            <div class="shortcut-item"><kbd>Del / Backspace</kbd> Supprimer</div>
+            <div class="help-section-title">Navigation</div>
+            <div class="shortcut-item"><kbd>1</kbd> Vue perspective</div>
+            <div class="shortcut-item"><kbd>2</kbd> Vue orthographique</div>
+            <div class="shortcut-item"><kbd>F</kbd> Centrer la vue</div>
+            <div class="shortcut-item"><kbd>O</kbd> Basculer Perspective / Ortho</div>
+            <div class="help-section-title">Modes</div>
+            <div class="shortcut-item"><kbd>Alt+1</kbd> Mode CAD</div>
+            <div class="shortcut-item"><kbd>Alt+2</kbd> Mode Mesh Edit</div>
+            <div class="shortcut-item"><kbd>Alt+3</kbd> Mode Sculpt</div>
+            <div class="shortcut-item"><kbd>Alt+4</kbd> Mode Landscape</div>
+            <div class="help-section-title">Édition</div>
+            <div class="shortcut-item"><kbd>Q</kbd> Sélection</div>
+            <div class="shortcut-item"><kbd>W</kbd> Déplacement</div>
+            <div class="shortcut-item"><kbd>G</kbd> Déplacement (Grab)</div>
+            <div class="shortcut-item"><kbd>E</kbd> Rotation</div>
+            <div class="shortcut-item"><kbd>R</kbd> Échelle</div>
+            <div class="shortcut-item"><kbd>Espace</kbd> Outil sélection</div>
+            <div class="help-section-title">Aide</div>
+            <div class="shortcut-item"><kbd>F1</kbd> Afficher / Masquer les raccourcis</div>
+          </div>
+        </div>
+      </div>
 
       <!-- ===== 3. STATUS BAR ===== -->
       <footer class="status-bar">
