@@ -814,6 +814,75 @@ input[type="range"] {
 
 .wide { width: 100%; }
 .hidden { display: none !important; }
+.cloud-ws-select {
+  width: 100%; margin: 0 0 4px; padding: 4px 6px; border-radius: 4px;
+  background: var(--panel-2); color: var(--text); border: 1px solid var(--line); font-size: 11px;
+}
+
+/* --- Dashboard Workspace / Projets / Bibliothèque --- */
+.dashboard {
+  position: fixed; inset: 0; z-index: 9990; background: var(--bg);
+  display: flex; flex-direction: column;
+}
+.dashboard-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--tb-bg);
+}
+.dashboard-title { display: flex; align-items: baseline; gap: 10px; }
+.dashboard-title strong { font-size: 17px; color: var(--text); }
+.dashboard-sub { font-size: 12px; color: var(--muted); }
+.dashboard-head-actions { display: flex; gap: 8px; }
+.dashboard-head-actions button {
+  background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+  padding: 6px 12px; border-radius: 8px; font-size: 12px; cursor: pointer;
+}
+.dashboard-head-actions button:hover { background: var(--tb-hover); }
+.dashboard-head-actions .dashboard-enter { background: var(--tb-active); border-color: var(--tb-active); color: #05241d; font-weight: 600; }
+.dashboard-head-actions .dashboard-close { border: none; background: none; font-size: 16px; }
+.dashboard-cols { flex: 1; display: flex; gap: 1px; background: var(--line); overflow: hidden; }
+.dash-col { flex: 1; background: var(--bg); padding: 16px; overflow-y: auto; min-width: 0; display: flex; flex-direction: column; }
+.dash-col-title {
+  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .6px;
+  color: var(--muted); padding: 0 2px 10px;
+}
+.dash-list { display: flex; flex-direction: column; gap: 6px; }
+.dash-ws {
+  display: flex; align-items: center; justify-content: space-between; text-align: left;
+  padding: 9px 11px; border-radius: 10px; border: 1px solid transparent;
+  background: var(--panel-2); color: var(--text); font-size: 12px; cursor: pointer;
+}
+.dash-ws:hover { background: var(--tb-hover); }
+.dash-ws.active { background: rgba(53,180,156,.14); border-color: rgba(53,180,156,.45); color: var(--accent); }
+.dash-count { font-size: 10px; background: var(--panel); padding: 1px 7px; border-radius: 10px; color: var(--muted); }
+.dash-ws.active .dash-count { background: rgba(53,180,156,.22); color: var(--accent); }
+.dash-proj {
+  padding: 11px 12px; border-radius: 12px; border: 1px solid var(--line);
+  background: var(--panel-2); cursor: pointer;
+}
+.dash-proj:hover { border-color: var(--tb-hover); }
+.dash-proj.active { border-color: rgba(53,180,156,.5); background: var(--panel); box-shadow: 0 2px 14px rgba(53,180,156,.08); }
+.dash-proj-name { font-size: 13px; color: var(--text); font-weight: 500; }
+.dash-proj-date { font-size: 10px; color: var(--muted); margin-top: 2px; }
+.dash-empty { font-size: 11px; color: var(--muted); padding: 6px 2px; }
+.dash-lib { display: flex; flex-direction: column; gap: 14px; }
+.dash-lib-group { display: flex; flex-direction: column; gap: 5px; }
+.dash-lib-title { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; display: flex; align-items: center; justify-content: space-between; }
+.dash-mini {
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
+  border-radius: 6px; width: 20px; height: 20px; font-size: 13px; line-height: 1; cursor: pointer;
+}
+.dash-mini:hover { background: var(--tb-hover); }
+.dash-lib-item {
+  display: flex; align-items: center; gap: 8px; padding: 7px 9px;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 9px;
+  font-size: 11px; color: var(--text); cursor: pointer;
+}
+.dash-lib-item:hover { border-color: rgba(53,180,156,.45); }
+.dash-swatch { width: 16px; height: 16px; border-radius: 4px; border: 1px solid rgba(255,255,255,.14); flex: none; }
+.dash-lib-icon { color: var(--accent-2); flex: none; }
+.dash-lib-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dash-rm { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 11px; padding: 0 2px; }
+.dash-rm:hover { color: var(--danger); }
 
 .inspector {
   display: grid;

@@ -924,6 +924,7 @@ const state = {
     strength: 0.3,
     geoBackup: null,
   },
+  library: { materials: [], components: [] },
   landscape: {
     mesh: null,
     size: 20,
@@ -1216,7 +1217,7 @@ let hlReg = new Map();
 let hlLastSig = "";
 let selectionBox = null;
 let clipboardSpecs = [];
-let cloudAgent = { user: null, projectId: null, timer: null };
+let cloudAgent = { user: null, projectId: null, timer: null, workspaces: [], workspaceId: null, workspaceName: null };
 let vpFrontCam = null, vpTopCam = null, vpLeftCam = null;
 let lightManager = null;
 let camManager = null;
@@ -1272,6 +1273,9 @@ async function refreshCloudStatus() {
   } catch (e) {}
   cloudAgent.user = null;
   cloudAgent.projectId = null;
+  cloudAgent.workspaces = [];
+  cloudAgent.workspaceId = null;
+  cloudAgent.workspaceName = null;
   if (dom.cloudStatus) dom.cloudStatus.textContent = "Cloud : non connecté";
 }
 
@@ -1287,14 +1291,14 @@ async function saveToCloud(force) {
     return;
   }
   clearTimeout(cloudAgent.timer);
-  const payload = { name: state.name || "Projet sans nom", data: toProjectJSON() };
+  const payload = { name: state.name || "Projet sans nom", data: toProjectJSON(), workspaceId: cloudAgent.workspaceId || undefined };
   try {
     let resp;
     if (cloudAgent.projectId) {
       resp = await fetch(`/api/projects/${cloudAgent.projectId}`, { method: "PUT", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
     } else {
       resp = await fetch("/api/projects", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-      if (resp.ok) { const result = await resp.json(); cloudAgent.projectId = result.id; }
+      if (resp.ok) { const result = await resp.json(); cloudAgent.projectId = result.id; if (result.workspaceId) cloudAgent.workspaceId = result.workspaceId; }
     }
     if (dom.cloudStatus) {
       if (resp.ok) dom.cloudStatus.textContent = `Cloud : ${cloudAgent.user.email || "sauvé"} ✓`;
@@ -1311,33 +1315,267 @@ function persistCloudMapping() {
   try { const map = JSON.parse(localStorage.getItem("iner_cloud_proj") || "{}"); map[(cloudAgent.user.email || "").toLowerCase()] = cloudAgent.projectId; localStorage.setItem("iner_cloud_proj", JSON.stringify(map)); } catch (e) {}
 }
 
+async function refreshCloudWorkspaces() {
+  if (!cloudAgent.user) return [];
+  try {
+    const resp = await fetch("/api/workspaces", { credentials: "same-origin" });
+    if (!resp.ok) return cloudAgent.workspaces;
+    const data = await resp.json();
+    cloudAgent.workspaces = data.workspaces || [];
+    if (data.defaultId) {
+      try { const prev = localStorage.getItem("iner_cloud_ws"); if (prev && cloudAgent.workspaces.some(w => w.id === prev)) cloudAgent.workspaceId = prev; else { cloudAgent.workspaceId = data.defaultId; localStorage.setItem("iner_cloud_ws", data.defaultId); } } catch (e) { cloudAgent.workspaceId = data.defaultId; }
+      if (!cloudAgent.workspaceId) cloudAgent.workspaceId = data.defaultId;
+    }
+    const ws = cloudAgent.workspaces.find(w => w.id === cloudAgent.workspaceId);
+    cloudAgent.workspaceName = ws?.name || "";
+  } catch (e) {}
+  return cloudAgent.workspaces;
+}
+
+async function refreshProjectsForWorkspace(wsId) {
+  if (!cloudAgent.user) return [];
+  try {
+    const resp = await fetch(`/api/projects?workspace=${encodeURIComponent(wsId)}`, { credentials: "same-origin" });
+    if (!resp.ok) return [];
+    const { projects } = await resp.json();
+    return projects || [];
+  } catch (e) { return []; }
+}
+
+function enterStudio() {
+  const overlay = document.getElementById("dashboardOverlay");
+  if (overlay) overlay.classList.add("hidden");
+  if (dom.cloudProjectList) dom.cloudProjectList.classList.add("hidden");
+}
+
+function openDashboard() {
+  const overlay = document.getElementById("dashboardOverlay");
+  if (!overlay) return;
+  overlay.classList.remove("hidden");
+  renderDashboard();
+}
+
+function closeDashboard() { enterStudio(); }
+
+async function renderDashboard() {
+  await refreshCloudWorkspaces();
+  const wsList = document.getElementById("dashWsList");
+  if (wsList) {
+    wsList.innerHTML = "";
+    cloudAgent.workspaces.forEach((ws) => {
+      const btn = document.createElement("button");
+      btn.className = "dash-ws" + (ws.id === cloudAgent.workspaceId ? " active" : "");
+      btn.innerHTML = `<span>${ws.name}</span><span class="dash-count">${ws.projectCount}</span>`;
+      btn.addEventListener("click", async () => {
+        cloudAgent.workspaceId = ws.id;
+        cloudAgent.workspaceName = ws.name;
+        try { localStorage.setItem("iner_cloud_ws", ws.id); } catch (e) {}
+        renderDashboard();
+        renderCloudSection();
+      });
+      wsList.appendChild(btn);
+    });
+  }
+  await renderDashboardProjects();
+  renderLibrary();
+  renderCloudSection();
+}
+
+async function renderDashboardProjects() {
+  const projects = await refreshProjectsForWorkspace(cloudAgent.workspaceId);
+  const list = document.getElementById("dashProjList");
+  if (!list) return;
+  list.innerHTML = "";
+  if (!projects.length) { list.innerHTML = "<div class='dash-empty'>Aucun projet. Créez-en un.</div>"; return; }
+  projects.forEach((proj) => {
+    const el = document.createElement("div");
+    el.className = "dash-proj" + (proj.id === cloudAgent.projectId ? " active" : "");
+    el.innerHTML = `<div class="dash-proj-name">${proj.name || "Projet"}</div><div class="dash-proj-date">Modifié le ${proj.updatedAt ? new Date(proj.updatedAt.replace(" ", "T")).toLocaleDateString() : ""}</div>`;
+    el.addEventListener("click", () => openProjectData(proj.id));
+    list.appendChild(el);
+  });
+}
+
+async function openProjectData(projectId) {
+  try {
+    const r = await fetch(`/api/projects/${projectId}`, { credentials: "same-origin" });
+    if (!r.ok) return;
+    const { data, name, workspaceId } = await r.json();
+    cloudAgent.projectId = projectId;
+    if (workspaceId) { cloudAgent.workspaceId = workspaceId; try { localStorage.setItem("iner_cloud_ws", workspaceId); } catch (e) {} }
+    persistCloudMapping();
+    loadProject(data, (name || "cloud") + ".pix");
+    if (dom.cloudStatus) dom.cloudStatus.textContent = `Cloud : ${name || "projet"} ✓`;
+    enterStudio();
+  } catch (e) {}
+}
+
 async function newCloudProject() {
   if (!cloudAgent.user) { await refreshCloudStatus(); if (!cloudAgent.user) return; }
+  const name = window.prompt("Nom du nouveau projet :", state.name && state.name !== "Projet sans titre" ? state.name : "Nouveau projet") || "";
+  if (!name.trim()) return;
+  if (!cloudAgent.workspaceId) await refreshCloudWorkspaces();
   try {
-    const resp = await fetch("/api/projects", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: state.name || "Projet sans nom", data: toProjectJSON() }) });
-    if (resp.ok) { const r = await resp.json(); cloudAgent.projectId = r.id; persistCloudMapping(); if (dom.cloudStatus) dom.cloudStatus.textContent = `Cloud : ${cloudAgent.user.email || "nouveau"} ✓`; }
+    const resp = await fetch("/api/projects", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: name.trim(), data: toProjectJSON(), workspaceId: cloudAgent.workspaceId || undefined }) });
+    if (resp.ok) { const r = await resp.json(); cloudAgent.projectId = r.id; if (r.workspaceId) cloudAgent.workspaceId = r.workspaceId; state.name = name.trim(); dom.projectName.value = state.name; persistCloudMapping(); if (dom.cloudStatus) dom.cloudStatus.textContent = `Cloud : ${name.trim()} ✓`; await renderDashboard(); await renderCloudSection(); }
   } catch (e) {}
 }
 
 async function loadCloudList() {
   if (!cloudAgent.user) { await refreshCloudStatus(); if (!cloudAgent.user) return; }
   if (!dom.cloudProjectList) return;
+  renderCloudSection();
+}
+
+async function createWorkspace() {
+  if (!cloudAgent.user) { await refreshCloudStatus(); if (!cloudAgent.user) return; }
+  const name = window.prompt("Nom du nouvel espace de travail :", "Nouvel espace") || "";
+  if (!name.trim()) return;
   try {
-    const resp = await fetch("/api/projects", { credentials: "same-origin" });
-    if (!resp.ok) return;
-    const { projects } = await resp.json();
-    dom.cloudProjectList.innerHTML = "";
-    if (!projects?.length) { dom.cloudProjectList.innerHTML = "<div style='font-size:11px;color:var(--muted);padding:4px;'>Aucun projet en ligne</div>"; dom.cloudProjectList.classList.remove("hidden"); return; }
-    projects.forEach((proj) => {
-      const btn = document.createElement("button");
-      btn.innerHTML = `<span class="cloud-pname">${proj.name || "Projet"}</span><span class="cloud-pdate">${proj.updatedAt ? new Date(proj.updatedAt).toLocaleDateString() : ""}</span>`;
-      btn.addEventListener("click", async () => {
-        try { const r = await fetch(`/api/projects/${proj.id}`, { credentials: "same-origin" }); if (!r.ok) return; const { data, name } = await r.json(); loadProject(data, (name || "cloud") + ".pix"); cloudAgent.projectId = proj.id; persistCloudMapping(); if (dom.cloudStatus) dom.cloudStatus.textContent = `Cloud : ${name} ✓`; dom.cloudProjectList.classList.add("hidden"); } catch (e) {}
-      });
-      dom.cloudProjectList.appendChild(btn);
-    });
-    dom.cloudProjectList.classList.toggle("hidden");
+    const resp = await fetch("/api/workspaces", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: name.trim() }) });
+    if (resp.ok) {
+      const r = await resp.json();
+      cloudAgent.workspaceId = r.id;
+      cloudAgent.workspaceName = r.name;
+      try { localStorage.setItem("iner_cloud_ws", r.id); } catch (e) {}
+      await refreshCloudWorkspaces();
+      renderDashboard();
+      renderCloudSection();
+    }
   } catch (e) {}
+}
+
+async function removeWorkspace() {
+  if (!cloudAgent.user || !cloudAgent.workspaceId) return;
+  if (!window.confirm("Supprimer cet espace de travail ? Ses projets seront déplacés vers l'espace principal.")) return;
+  try {
+    const resp = await fetch(`/api/workspaces/${cloudAgent.workspaceId}`, { method: "DELETE", credentials: "same-origin" });
+    if (resp.ok) {
+      cloudAgent.workspaceId = null;
+      try { localStorage.removeItem("iner_cloud_ws"); } catch (e) {}
+      await refreshCloudWorkspaces();
+      renderDashboard();
+      renderCloudSection();
+    }
+  } catch (e) {}
+}
+
+function selectedSpec() {
+  const id = state.selectedIds?.[0];
+  return id ? state.objects.find((o) => o.id === id) : null;
+}
+
+function addLibraryMaterial() {
+  const spec = selectedSpec();
+  const mat = spec?.material || (state.materials?.[0] || { color: "#d4a373", roughness: 0.6, metalness: 0.05, type: "standard" });
+  const item = {
+    id: "mat_" + Math.random().toString(16).slice(2, 10),
+    name: (spec?.name || "Matériau") + " — " + (mat.color || "#d4a373"),
+    color: mat.color || "#d4a373",
+    roughness: mat.roughness ?? 0.6,
+    metalness: mat.metalness ?? 0.05,
+    type: mat.type || "standard",
+  };
+  if (!state.library.materials.some((m) => m.name === item.name && m.color === item.color)) state.library.materials.push(item);
+  cloudMarkDirty();
+  renderLibrary();
+}
+
+function addLibraryComponent() {
+  const spec = selectedSpec();
+  if (!spec) { alert("Sélectionnez un objet dans la scène pour l'ajouter à la bibliothèque."); return; }
+  const copy = structuredClone(spec);
+  delete copy.id;
+  delete copy.position;
+  delete copy.rotation;
+  delete copy.quaternion;
+  delete copy.scale;
+  const item = { id: "comp_" + Math.random().toString(16).slice(2, 10), name: spec.name || spec.type || "Composant", type: spec.type, spec: copy };
+  if (!state.library.components.some((c) => c.type === item.type && c.name === item.name)) state.library.components.push(item);
+  cloudMarkDirty();
+  renderLibrary();
+}
+
+function removeLibraryMaterial(index) {
+  state.library.materials.splice(index, 1);
+  cloudMarkDirty();
+  renderLibrary();
+}
+
+function removeLibraryComponent(index) {
+  state.library.components.splice(index, 1);
+  cloudMarkDirty();
+  renderLibrary();
+}
+
+function applyLibraryComponent(item) {
+  try { addObject(item.spec.type || "cube", structuredClone(item.spec)); } catch (e) { alert("Impossible d'ajouter " + item.name); }
+}
+
+function applyLibraryMaterial(item) {
+  const spec = selectedSpec();
+  if (!spec) return;
+  spec.material = { ...(spec.material || {}), color: item.color, roughness: item.roughness, metalness: item.metalness, type: item.type || "standard" };
+  const mesh = findMesh(spec.id);
+  if (mesh) { if (mesh.material) { mesh.material.color?.set(item.color); mesh.material.roughness = item.roughness; mesh.material.metalness = item.metalness; } else if (Array.isArray(mesh.material)) { mesh.material.forEach((m) => { m.color?.set(item.color); m.roughness = item.roughness; m.metalness = item.metalness; }); } }
+  cloudMarkDirty();
+  renderInspector();
+}
+
+function renderLibrary() {
+  const lib = document.getElementById("dashLib");
+  if (lib) {
+    const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    const mats = state.library.materials.map((m, i) =>
+      `<div class="dash-lib-item" data-act="mat" data-i="${i}"><span class="dash-swatch" style="background:${esc(m.color)}"></span><span class="dash-lib-name">${esc(m.name)}</span><button class="dash-rm" data-rm="mat" data-i="${i}" title="Retirer">✕</button></div>`).join("") ||
+      "<div class='dash-empty'>Aucun matériau.</div>";
+    const comps = state.library.components.map((c, i) =>
+      `<div class="dash-lib-item" data-act="comp" data-i="${i}"><span class="dash-lib-icon">▦</span><span class="dash-lib-name">${esc(c.name)}</span><button class="dash-rm" data-rm="comp" data-i="${i}" title="Retirer">✕</button></div>`).join("") ||
+      "<div class='dash-empty'>Aucun composant.</div>";
+    lib.innerHTML = `<div class="dash-lib-group"><div class="dash-lib-title">Matériaux <button id="libAddMatBtn" class="dash-mini">+</button></div>${mats}</div><div class="dash-lib-group"><div class="dash-lib-title">Composants <button id="libAddCompBtn" class="dash-mini">+</button></div>${comps}</div>`;
+    document.getElementById("libAddMatBtn")?.addEventListener("click", addLibraryMaterial);
+    document.getElementById("libAddCompBtn")?.addEventListener("click", addLibraryComponent);
+    lib.querySelectorAll(".dash-lib-item").forEach((el) => {
+      el.addEventListener("click", (e) => {
+        const target = e.target;
+        if (target.classList.contains("dash-rm")) {
+          const i = Number(target.dataset.i);
+          if (target.dataset.rm === "mat") removeLibraryMaterial(i); else removeLibraryComponent(i);
+          return;
+        }
+        const i = Number(el.dataset.i);
+        if (el.dataset.act === "mat") applyLibraryMaterial(state.library.materials[i]);
+        else if (el.dataset.act === "comp") applyLibraryComponent(state.library.components[i]);
+      });
+    });
+  }
+}
+
+async function renderCloudSection() {
+  if (!dom.cloudStatus || !cloudAgent.user) return;
+  await refreshCloudWorkspaces();
+  const select = document.getElementById("cloudWsSelect");
+  if (select) {
+    select.classList.remove("hidden");
+    select.innerHTML = cloudAgent.workspaces.map((w) => `<option value="${w.id}"${w.id === cloudAgent.workspaceId ? " selected" : ""}>${w.name}</option>`).join("");
+    select.onchange = async () => { cloudAgent.workspaceId = select.value; cloudAgent.workspaceName = cloudAgent.workspaces.find(w => w.id === select.value)?.name || ""; try { localStorage.setItem("iner_cloud_ws", select.value); } catch (e) {} renderCloudSection(); renderDashboard(); };
+  }
+  if (dom.cloudProjectList) {
+    dom.cloudProjectList.classList.remove("hidden");
+    await renderCloudProjectsInto(dom.cloudProjectList);
+  }
+}
+
+async function renderCloudProjectsInto(container) {
+  const projects = await refreshProjectsForWorkspace(cloudAgent.workspaceId);
+  container.innerHTML = "";
+  if (!projects.length) { container.innerHTML = "<div style='font-size:11px;color:var(--muted);padding:4px;'>Aucun projet dans cet espace</div>"; return; }
+  projects.forEach((proj) => {
+    const btn = document.createElement("button");
+    btn.innerHTML = `<span class="cloud-pname">${proj.name || "Projet"}</span><span class="cloud-pdate">${proj.updatedAt ? new Date(proj.updatedAt.replace(" ", "T")).toLocaleDateString() : ""}</span>`;
+    btn.addEventListener("click", () => openProjectData(proj.id));
+    container.appendChild(btn);
+  });
 }
 
 function initCloudUI() {
@@ -1348,7 +1586,20 @@ function initCloudUI() {
   dom.cloudSaveBtn?.addEventListener("click", () => saveToCloud(true));
   dom.cloudLoadBtn?.addEventListener("click", loadCloudList);
   dom.cloudNewBtn?.addEventListener("click", newCloudProject);
-  refreshCloudStatus();
+  document.getElementById("dashNewProjectBtn")?.addEventListener("click", newCloudProject);
+  document.getElementById("dashNewWorkspaceBtn")?.addEventListener("click", createWorkspace);
+  document.getElementById("dashRemoveWorkspaceBtn")?.addEventListener("click", removeWorkspace);
+  document.getElementById("dashEnterBtn")?.addEventListener("click", enterStudio);
+  document.getElementById("dashCloseBtn")?.addEventListener("click", closeDashboard);
+  refreshCloudStatus().then(async () => {
+    if (cloudAgent.user) {
+      await refreshCloudWorkspaces();
+      const q = new URLSearchParams(location.search);
+      const pid = q.get("project");
+      if (pid) { await openProjectData(pid); }
+      else if (!q.has("mode")) { openDashboard(); }
+    }
+  });
   updateUndoUI();
 }
 
@@ -5923,6 +6174,9 @@ function toProjectJSON() {
     gridTheme: state.gridTheme,
     gridSize: state.gridSize,
     envPreset: state.envPreset || "",
+    workspaceId: cloudAgent.workspaceId || null,
+    projectId: cloudAgent.projectId || null,
+    library: state.library,
     cine: cineData(),
   };
 }
@@ -5964,6 +6218,11 @@ function loadProject(project, fileName) {
   });
   state.name = project.name || fileName.replace(/\.(pix|inrproject)$/i, "");
   state.style = project.style || "american";
+  state.library = (project.library && Array.isArray(project.library.materials) && Array.isArray(project.library.components))
+    ? { materials: project.library.materials, components: project.library.components }
+    : { materials: [], components: [] };
+  if (project.workspaceId) cloudAgent.workspaceId = project.workspaceId;
+  if (project.projectId) cloudAgent.projectId = project.projectId;
   state.materials = Array.isArray(project.materials) ? project.materials.filter((m) => m && m.key && m.label) : [];
   state.collection = Array.isArray(project.collection)
     ? project.collection.filter((e) => e && e.spec).map((e) => ({ id: e.id || crypto.randomUUID(), name: e.name || "Objet", spec: e.spec }))
@@ -8492,5 +8751,5 @@ function escapeHTML(value) {
 }
 
 if (new URLSearchParams(location.search).get("debug") === "1") {
-  window.__iner = { state, toProjectJSON, loadProject, createMesh, registerImported, renderCustomLibrary, addCustomInstance, copySelected, pasteClipboard, deleteSelected, duplicateSelected, engine: __engine, sceneManager: __sceneManager, meshEditMode: meshEditObj, sculptMode: sculptModeObj, setMode, setParticleEffect, setCamMode, toggleRenderLightPanel, syncLightsFromState, syncPanoCamera, renderPanoramaImage, exportPanorama, buildGrid, GRID_THEMES, applyHighlightState, updateSelectionBox, setHoverId: (id) => { hoverId = id; }, sun: lightManager ? lightManager.lights.sun : null, saveToCloud, loadCloudList, newCloudProject, refreshCloudStatus, cloudAgent, pushUndo, undo, redo };
+  window.__iner = { state, toProjectJSON, loadProject, createMesh, registerImported, renderCustomLibrary, addCustomInstance, copySelected, pasteClipboard, deleteSelected, duplicateSelected, engine: __engine, sceneManager: __sceneManager, meshEditMode: meshEditObj, sculptMode: sculptModeObj, setMode, setParticleEffect, setCamMode, toggleRenderLightPanel, syncLightsFromState, syncPanoCamera, renderPanoramaImage, exportPanorama, buildGrid, GRID_THEMES, applyHighlightState, updateSelectionBox, setHoverId: (id) => { hoverId = id; }, sun: lightManager ? lightManager.lights.sun : null, saveToCloud, loadCloudList, newCloudProject, refreshCloudStatus, cloudAgent, pushUndo, undo, redo, openDashboard, closeDashboard, renderDashboard, renderLibrary, addLibraryMaterial, addLibraryComponent, createWorkspace, removeWorkspace, refreshCloudWorkspaces, refreshProjectsForWorkspace, openProjectData };
 }

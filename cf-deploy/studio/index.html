@@ -841,6 +841,7 @@
                   <button id="cloudLoadBtn">📥 Charger</button>
                   <button id="cloudNewBtn">＋ Nouveau</button>
                 </div>
+                <select id="cloudWsSelect" class="cloud-ws-select hidden"></select>
                 <div id="cloudProjectList" class="cloud-list hidden"></div>
               </section>
             </div>
@@ -848,6 +849,37 @@
           </div>
         </aside>
       </main>
+
+      <!-- Dashboard Workspace / Projets / Bibliothèque -->
+      <div id="dashboardOverlay" class="dashboard hidden">
+        <div class="dashboard-head">
+          <div class="dashboard-title">
+            <strong>InerStudio</strong>
+            <span class="dashboard-sub">Espaces de travail &amp; projets</span>
+          </div>
+          <div class="dashboard-head-actions">
+            <button id="dashNewProjectBtn">＋ Nouveau projet</button>
+            <button id="dashNewWorkspaceBtn">＋ Nouvel espace</button>
+            <button id="dashRemoveWorkspaceBtn" title="Supprimer l'espace actif">🗑 Espace</button>
+            <button id="dashEnterBtn" class="dashboard-enter">Entrer dans le studio</button>
+            <button id="dashCloseBtn" class="dashboard-close" title="Fermer">✕</button>
+          </div>
+        </div>
+        <div class="dashboard-cols">
+          <div class="dash-col dash-col-ws">
+            <div class="dash-col-title">Workspaces</div>
+            <div id="dashWsList" class="dash-list"></div>
+          </div>
+          <div class="dash-col dash-col-proj">
+            <div class="dash-col-title">Projets (.pix)</div>
+            <div id="dashProjList" class="dash-list"></div>
+          </div>
+          <div class="dash-col dash-col-lib">
+            <div class="dash-col-title">Bibliothèque du projet</div>
+            <div id="dashLib" class="dash-lib"></div>
+          </div>
+        </div>
+      </div>
 
       <!-- Keyboard shortcuts help modal -->
       <div id="shortcutModal" class="help-modal hidden">
