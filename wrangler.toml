@@ -1,6 +1,11 @@
 name = "iner"
-compatibility_date = "2024-11-01"
 pages_build_output_dir = "cf-deploy"
+compatibility_date = "2025-09-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "iner"
+database_id = "a9032961-832f-4502-86c0-cc922521eb9d"
 
 [[kv_namespaces]]
 binding = "iner_sessions"
