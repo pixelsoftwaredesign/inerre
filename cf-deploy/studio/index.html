@@ -186,6 +186,7 @@
 
             <!-- 360° : panorama -->
             <div class="ct-group" data-modes="PANORAMA_360">
+              <button data-ct="panoSync">Vue caméra</button>
               <button data-ct="panoramaImport">Importer 360°</button>
               <button data-ct="panoramaExport">Exporter 360°</button>
             </div>
@@ -564,7 +565,9 @@
               </section>
               <section data-modes="PANORAMA_360">
                 <h2>Image 360°</h2>
-                <button id="importPanoramaBtn" class="wide">Importer panorama</button>
+                <p class="hint">Le rendu 360° affiche la scène 3D en direct. Importez une image pour l'utiliser comme fond.</p>
+                <button data-ct="panoSync" class="wide">Recalibrer la caméra</button>
+                <button id="importPanoramaBtn" class="wide">Importer panorama (fond)</button>
                 <button id="exportPanoramaBtn" class="wide">Exporter 360°</button>
                 <p id="panoramaStatus" class="hint">Aucune image chargée</p>
               </section>
@@ -789,7 +792,7 @@
               <section>
                 <h2>Pipeline 6 étapes</h2>
                 <ol id="pipeline" class="pipeline">
-                  <li data-pipeline="pano"><span class="step-num">1</span><span class="step-label">Importer une image 360</span><span class="step-status"></span></li>
+                  <li data-pipeline="pano"><span class="step-num">1</span><span class="step-label">Afficher la scène 3D en 360° (option : image de fond)</span><span class="step-status"></span></li>
                   <li data-pipeline="plan"><span class="step-num">2</span><span class="step-label">Importer ou tracer un plan 2D</span><span class="step-status"></span></li>
                   <li data-pipeline="build"><span class="step-num">3</span><span class="step-label">Convertir le plan en construction 3D</span><span class="step-status"></span></li>
                   <li data-pipeline="furnish"><span class="step-num">4</span><span class="step-label">Ajouter mobilier et matériaux</span><span class="step-status"></span></li>

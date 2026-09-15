@@ -1172,7 +1172,6 @@ transformControls.addEventListener("objectChange", () => {
 });
 scene.add(transformControls);
 
-const panoScene = new THREE.Scene();
 const panoCamera = new THREE.PerspectiveCamera(75, 1, 0.1, 1100);
 panoCamera.position.set(0, 0, 0.1);
 const panoRenderer = new THREE.WebGLRenderer({ antialias: true });
@@ -1197,7 +1196,6 @@ let particleSystem = null;
 let vpFrontGrid = null, vpTopGrid = null, vpLeftGrid = null;
 let quadViewActive = false;
 const textureCache = new Map();
-let panoramaMesh = null;
 let planImage = null;
 let draftSegment = null;
 let isDrawingPlan = false;
@@ -3821,6 +3819,7 @@ const primary = primaryId();
     measure: toggleMeasure,
     snap: toggleSnap,
     focus: focusCamera,
+    panoSync: syncPanoCamera,
     panoramaImport: () => dom.panoramaInput.click(),
     panoramaExport: exportPanorama,
     cinePlay: toggleCine,
@@ -5321,14 +5320,19 @@ function updatePanorama() {
   if (!state.panoramaDataUrl) return;
   loader.load(state.panoramaDataUrl, (texture) => {
     texture.colorSpace = THREE.SRGBColorSpace;
-    if (panoramaMesh) panoScene.remove(panoramaMesh);
-    const geometry = new THREE.SphereGeometry(500, 64, 32);
-    geometry.scale(-1, 1, 1);
-    const material = new THREE.MeshBasicMaterial({ map: texture });
-    panoramaMesh = new THREE.Mesh(geometry, material);
-    panoScene.add(panoramaMesh);
     scene.background = texture;
   });
+}
+
+function syncPanoCamera() {
+  panoCamera.position.set(
+    camera.position.x,
+    Math.max(0.05, camera.position.y),
+    camera.position.z
+  );
+  panoCamera.lookAt(controls.target);
+  panoControls.target.copy(controls.target);
+  panoControls.update();
 }
 
 function applyRoomInputs() {
@@ -5383,6 +5387,7 @@ function setMode(mode) {
   dom.panoramaViewport.classList.toggle("hidden", mode !== "pano" && mode !== "split");
   dom.viewport.classList.toggle("split-left", mode === "split");
   dom.panoramaViewport.classList.toggle("split-right", mode === "split");
+  if (mode === "pano" || mode === "split") syncPanoCamera();
   if (mode !== "model") {
     if (state.draw.active) {
       state.draw.tool = null;
@@ -5460,8 +5465,12 @@ function newProject() {
   transformControls.detach();
   transformControls.setTranslationSnap(null);
   transformControls.setRotationSnap(null);
-  if (panoramaMesh) panoScene.remove(panoramaMesh);
-  panoramaMesh = null;
+  if (dom.panoramaViewport) {
+    panoCamera.position.set(camera.position.x, Math.max(0.05, camera.position.y), camera.position.z);
+    panoCamera.lookAt(controls.target);
+    panoControls.target.copy(controls.target);
+    panoControls.update();
+  }
   state.envPreset = "";
   textureCache.clear();
   document.querySelector("#roomWidth").value = state.room.width;
@@ -5691,18 +5700,16 @@ function exportGLB() {
   }, { binary: true, includeCustomExtensions: false });
 }
 
-function exportPanorama() {
-  const eqW = 4096, eqH = 2048;
-  const faceSize = 2048;
+function renderPanoramaImage(eqW, eqH, faceSize, vantage) {
   const origBg = scene.background;
   const origClearColor = renderer.getClearColor(new THREE.Color());
   const origClearAlpha = renderer.getClearAlpha();
   const origPixelRatio = renderer.getPixelRatio();
   renderer.setPixelRatio(1);
 
-  const rt = new THREE.WebGLRenderTarget(faceSize, faceSize, { type: THREE.UnsignedByteType });
-  const tempCam = new THREE.PerspectiveCamera(90, 1, 0.1, 100);
-  tempCam.position.set(0, 1.6, 0);
+  const rt = new THREE.WebGLRenderTarget(faceSize, faceSize, { type: THREE.UnsignedByteType, colorSpace: THREE.SRGBColorSpace });
+  const tempCam = new THREE.PerspectiveCamera(90, 1, 0.1, 1100);
+  tempCam.position.copy(vantage);
 
   const dirs = [
     { dir: new THREE.Vector3(0, 0, 1), up: new THREE.Vector3(0, 1, 0) },
@@ -5714,13 +5721,21 @@ function exportPanorama() {
   ];
 
   const faces = [];
+  const basis = [];
   for (const d of dirs) {
     tempCam.lookAt(d.dir.clone().add(tempCam.position), d.up);
+    tempCam.updateMatrixWorld();
     renderer.setRenderTarget(rt);
     renderer.render(scene, tempCam);
     const pixels = new Uint8Array(faceSize * faceSize * 4);
     renderer.readRenderTargetPixels(rt, 0, 0, faceSize, faceSize, pixels);
     faces.push(pixels);
+    const e = tempCam.matrixWorld.elements;
+    basis.push({
+      right: new THREE.Vector3(e[0], e[1], e[2]),
+      up: new THREE.Vector3(e[4], e[5], e[6]),
+      forward: new THREE.Vector3(-e[8], -e[9], -e[10]),
+    });
   }
   renderer.setRenderTarget(null);
 
@@ -5729,33 +5744,32 @@ function exportPanorama() {
   eqCanvas.height = eqH;
   const eqCtx = eqCanvas.getContext("2d");
   const eqData = eqCtx.createImageData(eqW, eqH);
+  const eR = basis.map((b) => [b.right.x, b.right.y, b.right.z]);
+  const eU = basis.map((b) => [b.up.x, b.up.y, b.up.z]);
+  const eF = basis.map((b) => [b.forward.x, b.forward.y, b.forward.z]);
 
   for (let y = 0; y < eqH; y++) {
+    const pitch = (0.5 - (y + 0.5) / eqH) * Math.PI;
+    const cp = Math.cos(pitch), sp = Math.sin(pitch);
     for (let x = 0; x < eqW; x++) {
-      const theta = (x / eqW) * 2 * Math.PI;
-      const phi = (y / eqH) * Math.PI;
-      const dir = new THREE.Vector3(
-        -Math.sin(phi) * Math.cos(theta),
-        Math.cos(phi),
-        Math.sin(phi) * Math.sin(theta)
-      );
-      const absX = Math.abs(dir.x), absY = Math.abs(dir.y), absZ = Math.abs(dir.z);
-      let faceIdx, u, v;
-      if (absX >= absY && absX >= absZ) {
-        faceIdx = dir.x > 0 ? 2 : 3;
-        u = dir.z / absX; v = -dir.y / absX;
-      } else if (absY >= absX && absY >= absZ) {
-        faceIdx = dir.y > 0 ? 4 : 5;
-        u = dir.x / absY; v = dir.z / absY;
-      } else {
-        faceIdx = dir.z > 0 ? 0 : 1;
-        u = dir.x / absZ; v = -dir.y / absZ;
-      }
-      const px = Math.min(faceSize - 1, Math.floor((u + 1) / 2 * faceSize));
-      const py = Math.min(faceSize - 1, Math.floor((v + 1) / 2 * faceSize));
-      const srcIdx = (py * faceSize + px) * 4;
-      const dstIdx = (y * eqW + x) * 4;
-      if (srcIdx >= 0 && srcIdx + 2 < faces[faceIdx].length) {
+      const yaw = ((x + 0.5) / eqW - 0.5) * 2 * Math.PI;
+      const dx = cp * Math.cos(yaw);
+      const dy = sp;
+      const dz = cp * Math.sin(yaw);
+      const adx = Math.abs(dx), ady = Math.abs(dy), adz = Math.abs(dz);
+      let faceIdx;
+      if (adx >= ady && adx >= adz) faceIdx = dx > 0 ? 2 : 3;
+      else if (ady >= adx && ady >= adz) faceIdx = dy > 0 ? 4 : 5;
+      else faceIdx = dz > 0 ? 0 : 1;
+      const R = eR[faceIdx], U = eU[faceIdx], F = eF[faceIdx];
+      const along = dx * F[0] + dy * F[1] + dz * F[2];
+      if (along > 0) {
+        const uf = (dx * R[0] + dy * R[1] + dz * R[2]) / along;
+        const vf = (dx * U[0] + dy * U[1] + dz * U[2]) / along;
+        const px = Math.min(faceSize - 1, Math.max(0, Math.floor((uf + 1) / 2 * faceSize)));
+        const py = Math.min(faceSize - 1, Math.max(0, Math.floor((vf + 1) / 2 * faceSize)));
+        const srcIdx = (py * faceSize + px) * 4;
+        const dstIdx = (y * eqW + x) * 4;
         eqData.data[dstIdx] = faces[faceIdx][srcIdx];
         eqData.data[dstIdx + 1] = faces[faceIdx][srcIdx + 1];
         eqData.data[dstIdx + 2] = faces[faceIdx][srcIdx + 2];
@@ -5765,15 +5779,22 @@ function exportPanorama() {
   }
   eqCtx.putImageData(eqData, 0, 0);
 
-  const link = document.createElement("a");
-  link.download = `${slug(state.name)}_360.png`;
-  link.href = eqCanvas.toDataURL("image/png");
-  link.click();
-
   renderer.setPixelRatio(origPixelRatio);
   scene.background = origBg;
   renderer.setClearColor(origClearColor, origClearAlpha);
   rt.dispose();
+  return { canvas: eqCanvas, imageData: eqData };
+}
+
+function exportPanorama() {
+  const eqW = 4096, eqH = 2048;
+  const faceSize = 2048;
+  const vantage = new THREE.Vector3(camera.position.x, Math.max(0.05, camera.position.y), camera.position.z);
+  const { canvas } = renderPanoramaImage(eqW, eqH, faceSize, vantage);
+  const link = document.createElement("a");
+  link.download = `${slug(state.name)}_360.png`;
+  link.href = canvas.toDataURL("image/png");
+  link.click();
 }
 
 function takeScreenshot() {
@@ -8011,7 +8032,7 @@ function animate() {
   } else {
     renderer.render(scene, getActiveCamera());
   }
-  panoRenderer.render(panoScene, panoCamera);
+  if (state.mode === "pano" || state.mode === "split") panoRenderer.render(scene, panoCamera);
 }
 
 function download(content, fileName, mimeType) {
@@ -8039,5 +8060,5 @@ function escapeHTML(value) {
 }
 
 if (new URLSearchParams(location.search).get("debug") === "1") {
-  window.__iner = { state, toProjectJSON, loadProject, createMesh, registerImported, renderCustomLibrary, addCustomInstance, engine: __engine, sceneManager: __sceneManager, meshEditMode: meshEditObj, sculptMode: sculptModeObj, setMode, setParticleEffect, setCamMode, toggleRenderLightPanel, syncLightsFromState, sun: lightManager ? lightManager.lights.sun : null };
+  window.__iner = { state, toProjectJSON, loadProject, createMesh, registerImported, renderCustomLibrary, addCustomInstance, engine: __engine, sceneManager: __sceneManager, meshEditMode: meshEditObj, sculptMode: sculptModeObj, setMode, setParticleEffect, setCamMode, toggleRenderLightPanel, syncLightsFromState, syncPanoCamera, renderPanoramaImage, exportPanorama, sun: lightManager ? lightManager.lights.sun : null };
 }
