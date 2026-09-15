@@ -31,6 +31,8 @@ const HL_SELECTED = 0xf59e0b;
 import { CinematicMode } from "./src/modes/CinematicMode.js";
 import { LandscapeMode } from "./src/modes/LandscapeMode.js";
 import { SculptMode } from "./src/modes/SculptMode.js";
+import { analyze as structuralAnalyze, defaultStructuralFor as structuralDefaultsFor, STATUS_COLORS as STRUCTURAL_COLORS, MATERIALS as STRUCTURAL_MATERIALS } from "./src/core/engineering/StructuralEngine.js";
+import { seismicStability, fireSpread, resilienceScore } from "./src/core/engineering/RiskSimulator.js";
 
 // ============================================================
 // 1. Noyau Mathématique Vectoriel 2D
@@ -1285,6 +1287,259 @@ function cloudMarkDirty() {
   cloudAgent.timer = setTimeout(() => saveToCloud(false), 2000);
 }
 
+function markProjectDirty() {
+  cloudMarkDirty();
+  localMarkDirty();
+}
+
+const LOCAL_AUTOSAVE_KEY = "iner_local_autosave";
+let localTimer = null;
+
+function localSaveNow() {
+  try {
+    localStorage.setItem(LOCAL_AUTOSAVE_KEY, JSON.stringify({ name: state.name || "Projet sans titre", data: toProjectJSON() }));
+  } catch (e) {}
+}
+
+function localMarkDirty() {
+  clearTimeout(localTimer);
+  localTimer = setTimeout(localSaveNow, 800);
+}
+
+window.addEventListener("beforeunload", () => { localSaveNow(); });
+
+// ============================================================
+// INGENIERIE : Analyse structurelle (descente de charges) & Risques
+// ============================================================
+
+const structuralState = {
+  active: false,
+  results: null,
+  colorMemory: new Map(),
+  timer: null,
+  seismicResult: null,
+  fireResult: null,
+  resilience: null,
+};
+
+function collectMaterials(id) {
+  const mesh = findMesh(id);
+  const out = [];
+  if (!mesh) return out;
+  mesh.traverse((o) => {
+    if (!o.isMesh) return;
+    if (Array.isArray(o.material)) out.push(...o.material);
+    else if (o.material) out.push(o.material);
+  });
+  return out;
+}
+
+function keepOriginalColors(id) {
+  if (structuralState.colorMemory.has(id)) return;
+  vacuumTintsCache();
+  structuralState.colorMemory.set(id, collectMaterials(id).filter((m) => m && m.color).map((m) => ({ mat: m, orig: m.color.clone() })));
+}
+
+function vacuumTintsCache() {
+  if (structuralState.colorMemory.size > 400) {
+    const ids = [...structuralState.colorMemory.keys()];
+    const alive = new Set(state.objects.map((o) => o.id));
+    for (const id of ids) if (!alive.has(id)) structuralState.colorMemory.delete(id);
+  }
+}
+
+function tintTo(id, hex) {
+  for (const m of collectMaterials(id)) {
+    if (m && m.color) m.color.set(hex);
+  }
+}
+
+function restoreTints() {
+  for (const [id, saved] of structuralState.colorMemory) {
+    for (const s of saved) {
+      if (s.mat && s.mat.color && !s.mat.color.isFrozen) s.mat.color.copy(s.orig);
+    }
+  }
+  structuralState.colorMemory.clear();
+}
+
+function structuralAnalysis() {
+  return structuralAnalyze(state.objects, {});
+}
+
+function runStructuralHeatmap() {
+  if (!structuralState.active) return;
+  const result = structuralAnalysis();
+  structuralState.results = result;
+  for (const element of result.elements) {
+    const hex = STRUCTURAL_COLORS[element.status];
+    keepOriginalColors(element.id);
+    tintTo(element.id, hex != null ? hex : STRUCTURAL_COLORS.ok);
+  }
+  updateEngineeringStatus();
+  return result;
+}
+
+function toggleStructuralHeatmap(force) {
+  structuralState.active = force != null ? Boolean(force) : !structuralState.active;
+  const btn = document.querySelector("#structBtn");
+  if (btn) btn.classList.toggle("active", structuralState.active);
+  if (structuralState.active) {
+    runStructuralHeatmap();
+  } else {
+    restoreTints();
+    updateEngineeringStatus();
+  }
+}
+
+function scheduleStructuralRecalc() {
+  if (!structuralState.active) return;
+  clearTimeout(structuralState.timer);
+  structuralState.timer = setTimeout(() => runStructuralHeatmap(), 300);
+}
+
+function updateEngineeringStatus() {
+  const el = document.querySelector("#engStatus");
+  if (!el) return;
+  const parts = [];
+  if (structuralState.active && structuralState.results) {
+    const a = structuralState.results.aggregate;
+    parts.push(`⚖ ${formatKg(a.totalWeightKg)} · δ ${(a.maxRatio * 100).toFixed(1)}%${a.maxElement ? " · " + a.maxElement.materialLabel : ""}`);
+  }
+  if (structuralState.resilience) {
+    const r = structuralState.resilience;
+    const cls = r.score >= 70 ? "ok" : r.score >= 40 ? "vigilance" : "critique";
+    parts.push(`Résilience ${r.score}/100 (${cls})`);
+  }
+  el.textContent = parts.join(" · ");
+  el.title = parts.join("\n");
+}
+
+function formatKg(kg) {
+  if (kg >= 1000) return (kg / 1000).toFixed(1).replace(".", ",") + " t";
+  return Math.round(kg) + " kg";
+}
+
+function resetEngineeringState() {
+  structuralState.active = false;
+  structuralState.results = null;
+  structuralState.seismicResult = null;
+  structuralState.fireResult = null;
+  structuralState.resilience = null;
+  void structuralState.colorMemory.clear();
+  document.querySelector("#structBtn")?.classList.remove("active");
+  document.querySelector("#riskBtn")?.classList.remove("active");
+  document.querySelector("#riskPanel")?.classList.add("hidden");
+  updateEngineeringStatus();
+}
+
+function toggleRiskPanel(force) {
+  const panel = document.querySelector("#riskPanel");
+  if (!panel) return;
+  const visible = force != null ? Boolean(force) : panel.classList.contains("hidden");
+  panel.classList.toggle("hidden", !visible);
+  const btn = document.querySelector("#riskBtn");
+  if (btn) btn.classList.toggle("active", visible);
+  if (visible && !structuralState.seismicResult) runSeismicAnalysis(6);
+}
+
+function runSeismicAnalysis(magnitude) {
+  const mag = Math.max(4, Math.min(8, Number(magnitude) || 6));
+  structuralState.seismicResult = seismicStability(state.objects, mag);
+  structuralState.resilience = resilienceScore(state.objects, mag);
+  for (const s of structuralState.seismicResult.scores) {
+    if (s.status !== "ok") {
+      keepOriginalColors(s.id);
+      tintTo(s.id, STRUCTURAL_COLORS[s.status] || 0xe5484d);
+    }
+  }
+  setTimeout(() => {
+    if (structuralState.active) runStructuralHeatmap();
+    else restoreTints();
+  }, 2500);
+  renderRiskPanel();
+  updateEngineeringStatus();
+  return structuralState.seismicResult;
+}
+
+function runFireSimulation() {
+  const firstSelected = primaryId();
+  structuralState.fireResult = fireSpread(state.objects, firstSelected || null);
+  renderRiskPanel();
+  const res = structuralState.fireResult;
+  const step = 900;
+  res.timeline.forEach((t, index) => {
+    setTimeout(() => {
+      keepOriginalColors(t.id);
+      tintTo(t.id, 0xff7a1a);
+      const row = document.querySelector(`[data-fire-row="${t.id}"]`);
+      if (row) row.classList.add("burned");
+      if (index === res.timeline.length - 1) {
+        setTimeout(() => {
+          if (structuralState.active) { runStructuralHeatmap(); }
+          else restoreTints();
+        }, 2500);
+      }
+    }, step * index);
+  });
+}
+
+function renderRiskPanel() {
+  const panel = document.querySelector("#riskPanel");
+  if (!panel) return;
+  const seismic = structuralState.seismicResult;
+  const fire = structuralState.fireResult;
+  const res = structuralState.resilience;
+  const magInput = panel.querySelector("#risqueMag");
+  if (magInput) magInput.value = seismic ? seismic.magnitude : 6;
+  const magVal = panel.querySelector("#risqueMagVal");
+  if (magVal && seismic) magVal.textContent = "M " + seismic.magnitude.toFixed(1);
+  const body = panel.querySelector("#riskBody");
+  if (!body) return;
+  const pct = (v) => Math.round(v * 100) + " %";
+  const rows = [];
+  if (seismic) {
+    rows.push(`<div class="risk-row"><span>Séisme M${seismic.magnitude.toFixed(1)} (PGA ${(seismic.pga * 100).toFixed(1)}%g)</span><strong class="${seismic.survivalProbability >= 0.8 ? "good" : seismic.survivalProbability >= 0.5 ? "mid" : "bad"}">${pct(seismic.survivalProbability)}</strong></div>`);
+    if (seismic.worst) rows.push(`<div class="risk-row sub"><span>Point critique : ${escapeHTML(seismic.worst.name)}</span><strong class="${seismic.worst.ratio >= 1 ? "bad" : "mid"}">${(seismic.worst.ratio * 100).toFixed(0)}%</strong></div>`);
+    for (const s of seismic.scores.slice(0, 3)) {
+      rows.push(`<div class="risk-row sub"><span>${escapeHTML(s.name)}</span><strong class="${s.survive ? "good" : "bad"}">${s.survive ? "stable" : "instable"}</strong></div>`);
+    }
+  }
+  if (fire) {
+    rows.push(`<div class="risk-row"><span>Incendie (départ : ${escapeHTML(fire.originName)})</span><strong class="${fire.survivalFraction >= 0.8 ? "good" : fire.survivalFraction >= 0.5 ? "mid" : "bad"}">${pct(fire.survivalFraction)}</strong></div>`);
+    const vuln = fire.vulnerable.slice(0, 3);
+    for (const v of vuln) rows.push(`<div class="risk-row sub"><span>⚠ ${escapeHTML(v.name)} (${Math.round(v.collapsesAtMin)} min)</span><strong class="bad">${v.vulnerable ? "vulnérable" : ""}</strong></div>`);
+    for (const t of fire.timeline) {
+      const label = `${escapeHTML(t.name)} · ignition ${t.startsAtMin} min`;
+      rows.push(`<div class="risk-row sub fire-row" data-fire-row="${t.id}"><span>${label}</span><strong class="${t.vulnerable ? "bad" : "good"}">${Math.round(t.collapsesAtMin)} min</strong></div>`);
+    }
+  }
+  if (res) {
+    rows.push(`<div class="risk-row total"><span>Résilience globale</span><strong class="${res.score >= 70 ? "good" : res.score >= 40 ? "mid" : "bad"}">${res.score}/100</strong></div>`);
+  }
+  body.innerHTML = rows.join("");
+}
+
+function restoreLastWork() {
+  if (cloudAgent.user && cloudAgent.projectId) {
+    return openProjectData(cloudAgent.projectId).then((loaded) => { if (loaded) return true; return restoreFromLocalAutosave(); });
+  }
+  return restoreFromLocalAutosave();
+}
+
+function restoreFromLocalAutosave() {
+  try {
+    const raw = localStorage.getItem(LOCAL_AUTOSAVE_KEY);
+    if (!raw) return false;
+    const saved = JSON.parse(raw);
+    if (saved && saved.data) {
+      loadProject(saved.data, (saved.name || "autosave") + ".pix");
+      return true;
+    }
+  } catch (e) {}
+  return false;
+}
+
 async function saveToCloud(force) {
   if (!cloudAgent.user) {
     if (force && dom.cloudStatus) { dom.cloudStatus.textContent = "Cloud : connectez-vous d'abord"; setTimeout(() => refreshCloudStatus(), 2000); }
@@ -1399,7 +1654,7 @@ async function renderDashboardProjects() {
 async function openProjectData(projectId) {
   try {
     const r = await fetch(`/api/projects/${projectId}`, { credentials: "same-origin" });
-    if (!r.ok) return;
+    if (!r.ok) return false;
     const { data, name, workspaceId } = await r.json();
     cloudAgent.projectId = projectId;
     if (workspaceId) { cloudAgent.workspaceId = workspaceId; try { localStorage.setItem("iner_cloud_ws", workspaceId); } catch (e) {} }
@@ -1407,7 +1662,8 @@ async function openProjectData(projectId) {
     loadProject(data, (name || "cloud") + ".pix");
     if (dom.cloudStatus) dom.cloudStatus.textContent = `Cloud : ${name || "projet"} ✓`;
     enterStudio();
-  } catch (e) {}
+    return true;
+  } catch (e) { return false; }
 }
 
 async function newCloudProject() {
@@ -1477,7 +1733,7 @@ function addLibraryMaterial() {
     type: mat.type || "standard",
   };
   if (!state.library.materials.some((m) => m.name === item.name && m.color === item.color)) state.library.materials.push(item);
-  cloudMarkDirty();
+  markProjectDirty();
   renderLibrary();
 }
 
@@ -1492,19 +1748,19 @@ function addLibraryComponent() {
   delete copy.scale;
   const item = { id: "comp_" + Math.random().toString(16).slice(2, 10), name: spec.name || spec.type || "Composant", type: spec.type, spec: copy };
   if (!state.library.components.some((c) => c.type === item.type && c.name === item.name)) state.library.components.push(item);
-  cloudMarkDirty();
+  markProjectDirty();
   renderLibrary();
 }
 
 function removeLibraryMaterial(index) {
   state.library.materials.splice(index, 1);
-  cloudMarkDirty();
+  markProjectDirty();
   renderLibrary();
 }
 
 function removeLibraryComponent(index) {
   state.library.components.splice(index, 1);
-  cloudMarkDirty();
+  markProjectDirty();
   renderLibrary();
 }
 
@@ -1518,7 +1774,7 @@ function applyLibraryMaterial(item) {
   spec.material = { ...(spec.material || {}), color: item.color, roughness: item.roughness, metalness: item.metalness, type: item.type || "standard" };
   const mesh = findMesh(spec.id);
   if (mesh) { if (mesh.material) { mesh.material.color?.set(item.color); mesh.material.roughness = item.roughness; mesh.material.metalness = item.metalness; } else if (Array.isArray(mesh.material)) { mesh.material.forEach((m) => { m.color?.set(item.color); m.roughness = item.roughness; m.metalness = item.metalness; }); } }
-  cloudMarkDirty();
+  markProjectDirty();
   renderInspector();
 }
 
@@ -1592,14 +1848,13 @@ function initCloudUI() {
   document.getElementById("dashEnterBtn")?.addEventListener("click", enterStudio);
   document.getElementById("dashCloseBtn")?.addEventListener("click", closeDashboard);
   refreshCloudStatus().then(async () => {
-    if (cloudAgent.user) {
-      await refreshCloudWorkspaces();
       const q = new URLSearchParams(location.search);
       const pid = q.get("project");
-      if (pid) { await openProjectData(pid); }
-      else if (!q.has("mode")) { openDashboard(); }
-    }
-  });
+      if (pid) { await openProjectData(pid); return; }
+      if (cloudAgent.user) await refreshCloudWorkspaces();
+      await restoreLastWork();
+      if (cloudAgent.user && !q.has("mode")) openDashboard();
+    });
   updateUndoUI();
 }
 
@@ -3771,6 +4026,11 @@ function bindUI() {
   document.querySelector("#meshExtrudeBtn").addEventListener("click", extrudeSelected);
   document.querySelector("#meshBevelBtn").addEventListener("click", bevelSelected);
   document.querySelector("#measureBtn").addEventListener("click", toggleMeasure);
+  document.querySelector("#structBtn")?.addEventListener("click", () => toggleStructuralHeatmap());
+  document.querySelector("#riskBtn")?.addEventListener("click", () => toggleRiskPanel());
+  document.querySelector("#risqueMag")?.addEventListener("input", (e) => runSeismicAnalysis(e.target.value));
+  document.querySelector("#risqueFireBtn")?.addEventListener("click", runFireSimulation);
+  document.querySelector("#riskCloseBtn")?.addEventListener("click", () => toggleRiskPanel(false));
   document.querySelector("#clearMeasureBtn")?.addEventListener("click", clearMeasurements);
   document.querySelector("#dropBtn")?.addEventListener("click", dropSelectedToFloor);
   document.querySelector("#collisionBtn")?.addEventListener("click", toggleCollision);
@@ -3897,7 +4157,7 @@ function bindUI() {
   dom.planCanvas.addEventListener("pointerup", endPlanSegment);
   dom.planCanvas.addEventListener("pointerleave", endPlanSegment);
 
-  ["objectName", "posX", "posY", "posZ", "scaleX", "scaleY", "scaleZ", "rotX", "rotY", "rotZ", "dimL", "dimH", "dimP", "matRoughness", "matMetalness", "matOpacity", "objectColor", "objectMaterial"].forEach((id) => {
+  ["objectName", "posX", "posY", "posZ", "scaleX", "scaleY", "scaleZ", "rotX", "rotY", "rotZ", "dimL", "dimH", "dimP", "matRoughness", "matMetalness", "matOpacity", "objectColor", "objectMaterial", "structMaterial", "structDensity", "structMpa", "structPorteur"].forEach((id) => {
     document.querySelector(`#${id}`).addEventListener("input", (e) => updateSelectedFromInspector(e));
   });
   document.querySelector("#planScale").addEventListener("input", () => {
@@ -4037,6 +4297,16 @@ const primary = primaryId();
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       event.preventDefault();
       setCamMode(state.render.camMode === "ortho" ? "persp" : "ortho");
+    } else if (event.key.toLowerCase() === "t" && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      const tag = event.target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      event.preventDefault();
+      toggleStructuralHeatmap();
+    } else if (event.key.toLowerCase() === "h" && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      const tag = event.target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      event.preventDefault();
+      toggleRiskPanel();
     }
   });
   window.addEventListener("resize", resize);
@@ -5818,6 +6088,12 @@ function renderInspector() {
   setValue("rotX", THREE.MathUtils.radToDeg(spec.rotation?.x || 0));
   setValue("rotY", THREE.MathUtils.radToDeg(spec.rotation?.y || 0));
   setValue("rotZ", THREE.MathUtils.radToDeg(spec.rotation?.z || 0));
+  const structural = structuralDefaultsFor(spec);
+  setValue("structMaterial", structural.material);
+  setValue("structDensity", structural.density);
+  setValue("structMpa", structural.mpa);
+  const porteurCheck = document.querySelector("#structPorteur");
+  if (porteurCheck) porteurCheck.checked = Boolean(structural.porteur);
 }
 
 function setRangeProgress(inputId, valId, value) {
@@ -5837,6 +6113,19 @@ function updateSelectedFromInspector(event) {
   const spec = findSpec(id);
   const mesh = findMesh(id);
   if (!spec || !mesh) return;
+  const structField = event && event.target && String(event.target.id).indexOf("struct") === 0;
+  if (structField) {
+    spec.structural = {
+      material: document.querySelector("#structMaterial").value,
+      density: numberValue("structDensity", 650),
+      mpa: numberValue("structMpa", 12),
+      porteur: document.querySelector("#structPorteur").checked,
+    };
+    renderInspector();
+    markProjectDirty();
+    scheduleStructuralRecalc();
+    return;
+  }
   const changedMaterial = event && event.target && event.target.id === "objectMaterial";
   spec.name = document.querySelector("#objectName").value || spec.name;
   spec.position = {
@@ -6116,6 +6405,8 @@ function newProject() {
   renderInspector();
   renderPlan();
   renderDraw();
+  localSaveNow();
+  resetEngineeringState();
 }
 
 function saveProject() {
@@ -6318,6 +6609,7 @@ function loadProject(project, fileName) {
   renderCustomMaterials();
   renderCollection();
   updateProjectUI();
+  localSaveNow();
 }
 
 function exportOBJ() {
@@ -8043,7 +8335,8 @@ function pushUndo() {
   if (u.history.length > u.max) u.history.shift();
   u.index = u.history.length - 1;
   updateUndoUI();
-  cloudMarkDirty();
+  markProjectDirty();
+  scheduleStructuralRecalc();
 }
 
 function undo() {
@@ -8052,7 +8345,8 @@ function undo() {
   u.index--;
   restoreSnapshot(u.history[u.index]);
   updateUndoUI();
-  cloudMarkDirty();
+  markProjectDirty();
+  scheduleStructuralRecalc();
 }
 
 function redo() {
@@ -8061,7 +8355,8 @@ function redo() {
   u.index++;
   restoreSnapshot(u.history[u.index]);
   updateUndoUI();
-  cloudMarkDirty();
+  markProjectDirty();
+  scheduleStructuralRecalc();
 }
 
 function restoreSnapshot(snapshot) {
@@ -8751,5 +9046,5 @@ function escapeHTML(value) {
 }
 
 if (new URLSearchParams(location.search).get("debug") === "1") {
-  window.__iner = { state, toProjectJSON, loadProject, createMesh, registerImported, renderCustomLibrary, addCustomInstance, copySelected, pasteClipboard, deleteSelected, duplicateSelected, engine: __engine, sceneManager: __sceneManager, meshEditMode: meshEditObj, sculptMode: sculptModeObj, setMode, setParticleEffect, setCamMode, toggleRenderLightPanel, syncLightsFromState, syncPanoCamera, renderPanoramaImage, exportPanorama, buildGrid, GRID_THEMES, applyHighlightState, updateSelectionBox, setHoverId: (id) => { hoverId = id; }, sun: lightManager ? lightManager.lights.sun : null, saveToCloud, loadCloudList, newCloudProject, refreshCloudStatus, cloudAgent, pushUndo, undo, redo, openDashboard, closeDashboard, renderDashboard, renderLibrary, addLibraryMaterial, addLibraryComponent, createWorkspace, removeWorkspace, refreshCloudWorkspaces, refreshProjectsForWorkspace, openProjectData };
+  window.__iner = { state, toProjectJSON, loadProject, createMesh, registerImported, renderCustomLibrary, addCustomInstance, copySelected, pasteClipboard, deleteSelected, duplicateSelected, engine: __engine, sceneManager: __sceneManager, meshEditMode: meshEditObj, sculptMode: sculptModeObj, setMode, setParticleEffect, setCamMode, toggleRenderLightPanel, syncLightsFromState, syncPanoCamera, renderPanoramaImage, exportPanorama, buildGrid, GRID_THEMES, applyHighlightState, updateSelectionBox, setHoverId: (id) => { hoverId = id; }, sun: lightManager ? lightManager.lights.sun : null, saveToCloud, loadCloudList, newCloudProject, refreshCloudStatus, cloudAgent, pushUndo, undo, redo, openDashboard, closeDashboard, renderDashboard, renderLibrary, addLibraryMaterial, addLibraryComponent, createWorkspace, removeWorkspace, refreshCloudWorkspaces, refreshProjectsForWorkspace, openProjectData, localSaveNow, restoreLastWork, restoreFromLocalAutosave, markProjectDirty, structuralAnalyze, structuralDefaultsFor, toggleStructuralHeatmap, runStructuralHeatmap, scheduleStructuralRecalc, runSeismicAnalysis, runFireSimulation, toggleRiskPanel, updateEngineeringStatus, structuralState };
 }

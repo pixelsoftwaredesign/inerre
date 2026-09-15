@@ -127,6 +127,12 @@
             <button id="cinePlayBtn" title="Lire la cinématique">Lire</button>
             <button id="cineExportBtn" title="Exporter la séquence en vidéo WebM">Export</button>
           </div>
+          <span class="toolbar-sep"></span>
+          <div class="tg-group">
+            <button id="structBtn" title="Analyse structurelle — descente de charges (T)">Structure</button>
+            <button id="riskBtn" title="Simulateur de risques — séisme &amp; incendie (H)">Risque</button>
+          </div>
+          <span id="engStatus" class="sel-info eng-status" title=""></span>
           <span id="selectionInfo" class="sel-info">Aucun objet</span>
         </div>
       </header>
@@ -636,6 +642,25 @@
                   <label>H (m) <input id="dimH" type="number" min="0.05" step="0.05" /></label>
                   <label>P (m) <input id="dimP" type="number" min="0.05" step="0.05" /></label>
                 </div>
+                <div class="axis-grid struct-fields">
+                  <label class="struct-full">Matériau
+                    <select id="structMaterial">
+                      <option value="concrete">Béton</option>
+                      <option value="brick">Brique</option>
+                      <option value="wood">Bois</option>
+                      <option value="steel">Acier</option>
+                      <option value="glass">Verre</option>
+                      <option value="stone">Pierre</option>
+                      <option value="foam">Mousse</option>
+                      <option value="plastic">Plastique</option>
+                      <option value="ceramic">Céramique</option>
+                      <option value="lightAlloy">Métal léger</option>
+                    </select>
+                  </label>
+                  <label>Densité kg/m³ <input id="structDensity" type="number" min="1" step="10" /></label>
+                  <label>Résist. MPa <input id="structMpa" type="number" min="0.01" step="0.5" /></label>
+                  <label class="struct-check"><input id="structPorteur" type="checkbox" /> Porteur</label>
+                </div>
               </section>
               <section>
                 <h2>Opérations</h2>
@@ -915,10 +940,29 @@
             <div class="shortcut-item"><kbd>E</kbd> Rotation</div>
             <div class="shortcut-item"><kbd>R</kbd> Échelle</div>
             <div class="shortcut-item"><kbd>Espace</kbd> Outil sélection</div>
+            <div class="shortcut-item"><kbd>T</kbd> Analyse structurelle (descente de charges)</div>
+            <div class="shortcut-item"><kbd>H</kbd> Simulateur de risques (séisme / feu)</div>
             <div class="help-section-title">Aide</div>
             <div class="shortcut-item"><kbd>F1</kbd> Afficher / Masquer les raccourcis</div>
           </div>
         </div>
+      </div>
+
+      <!-- ===== RISK SIMULATOR PANEL ===== -->
+      <div id="riskPanel" class="risk-panel hidden">
+        <div class="risk-head">
+          <strong>Risques &amp; Résilience</strong>
+          <button id="riskCloseBtn" class="help-modal-close" title="Fermer">✕</button>
+        </div>
+        <div class="risk-controls">
+          <label class="risk-range">Séisme — magniture
+            <input id="risqueMag" type="range" min="4" max="8" step="0.1" value="6" />
+            <span id="risqueMagVal" class="risk-mag"></span>
+          </label>
+          <button id="risqueFireBtn" class="accent-btn">🔥 Simuler un incendie</button>
+          <p class="risk-note">Départ de feu : objet sélectionné, sinon le plus massif.</p>
+        </div>
+        <div id="riskBody" class="risk-body"></div>
       </div>
 
       <!-- ===== 3. STATUS BAR ===== -->
