@@ -1206,6 +1206,7 @@ let hoverId = null;
 let gizmoDragging = false;
 let hlReg = new Map();
 let hlLastSig = "";
+let selectionBox = null;
 let vpFrontCam = null, vpTopCam = null, vpLeftCam = null;
 let lightManager = null;
 let camManager = null;
@@ -5256,6 +5257,49 @@ function applyHighlightState() {
   hlLastSig = sig;
 }
 
+const SEL_BOX_EDGES = [
+  0, 1, 1, 2, 2, 3, 3, 0,
+  4, 5, 5, 6, 6, 7, 7, 4,
+  0, 4, 1, 5, 2, 6, 3, 7,
+];
+
+function updateSelectionBox() {
+  const showBox = state.mode === "model" || state.mode === "split";
+  const primary = showBox && state.selectedIds.length ? primaryId() : null;
+  const mesh = primary ? findMesh(primary) : null;
+  if (!mesh || !mesh.visible) {
+    if (selectionBox) selectionBox.visible = false;
+    return;
+  }
+  const box = new THREE.Box3().setFromObject(mesh, true);
+  if (box.isEmpty() || !Number.isFinite(box.min.x) || !Number.isFinite(box.min.y) || !Number.isFinite(box.min.z)) {
+    if (selectionBox) selectionBox.visible = false;
+    return;
+  }
+  if (!selectionBox) {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(8 * 3), 3));
+    geo.setIndex(SEL_BOX_EDGES);
+    selectionBox = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({
+      color: HL_SELECTED, transparent: true, opacity: 0.95, toneMapped: false,
+    }));
+    selectionBox.renderOrder = 999;
+    selectionBox.name = "selectionBox";
+    scene.add(selectionBox);
+  }
+  const min = box.min, max = box.max;
+  selectionBox.geometry.attributes.position.setXYZ(0, min.x, min.y, min.z);
+  selectionBox.geometry.attributes.position.setXYZ(1, max.x, min.y, min.z);
+  selectionBox.geometry.attributes.position.setXYZ(2, max.x, min.y, max.z);
+  selectionBox.geometry.attributes.position.setXYZ(3, min.x, min.y, max.z);
+  selectionBox.geometry.attributes.position.setXYZ(4, min.x, max.y, min.z);
+  selectionBox.geometry.attributes.position.setXYZ(5, max.x, max.y, min.z);
+  selectionBox.geometry.attributes.position.setXYZ(6, max.x, max.y, max.z);
+  selectionBox.geometry.attributes.position.setXYZ(7, min.x, max.y, max.z);
+  selectionBox.geometry.attributes.position.needsUpdate = true;
+  selectionBox.visible = true;
+}
+
 function layerOfType(type) {
   if (type === "wall" || type === "door" || type === "window") return "walls";
   if (type === "floor" || type === "roof" || type === "ceiling" || type === "carpet" || type === "rug" || type === "platform") return "floor";
@@ -5896,6 +5940,8 @@ function renderPanoramaImage(eqW, eqH, faceSize, vantage) {
   const origClearColor = renderer.getClearColor(new THREE.Color());
   const origClearAlpha = renderer.getClearAlpha();
   const origPixelRatio = renderer.getPixelRatio();
+  const selBoxWasVisible = selectionBox ? selectionBox.visible : false;
+  if (selectionBox) selectionBox.visible = false;
   renderer.setPixelRatio(1);
 
   const rt = new THREE.WebGLRenderTarget(faceSize, faceSize, { type: THREE.UnsignedByteType, colorSpace: THREE.SRGBColorSpace });
@@ -5973,6 +6019,7 @@ function renderPanoramaImage(eqW, eqH, faceSize, vantage) {
   renderer.setPixelRatio(origPixelRatio);
   scene.background = origBg;
   renderer.setClearColor(origClearColor, origClearAlpha);
+  if (selectionBox) selectionBox.visible = selBoxWasVisible;
   rt.dispose();
   return { canvas: eqCanvas, imageData: eqData };
 }
@@ -8193,6 +8240,7 @@ function animate() {
   if (__engine) __engine.update(dt, state.anim.t);
   updateParticles(dt);
   applyHighlightState();
+  updateSelectionBox();
   controls.update();
   panoControls.update();
   if (quadViewActive && vpFrontCam && vpTopCam && vpLeftCam) {
@@ -8252,5 +8300,5 @@ function escapeHTML(value) {
 }
 
 if (new URLSearchParams(location.search).get("debug") === "1") {
-  window.__iner = { state, toProjectJSON, loadProject, createMesh, registerImported, renderCustomLibrary, addCustomInstance, engine: __engine, sceneManager: __sceneManager, meshEditMode: meshEditObj, sculptMode: sculptModeObj, setMode, setParticleEffect, setCamMode, toggleRenderLightPanel, syncLightsFromState, syncPanoCamera, renderPanoramaImage, exportPanorama, buildGrid, GRID_THEMES, applyHighlightState, setHoverId: (id) => { hoverId = id; }, sun: lightManager ? lightManager.lights.sun : null };
+  window.__iner = { state, toProjectJSON, loadProject, createMesh, registerImported, renderCustomLibrary, addCustomInstance, engine: __engine, sceneManager: __sceneManager, meshEditMode: meshEditObj, sculptMode: sculptModeObj, setMode, setParticleEffect, setCamMode, toggleRenderLightPanel, syncLightsFromState, syncPanoCamera, renderPanoramaImage, exportPanorama, buildGrid, GRID_THEMES, applyHighlightState, updateSelectionBox, setHoverId: (id) => { hoverId = id; }, sun: lightManager ? lightManager.lights.sun : null };
 }
