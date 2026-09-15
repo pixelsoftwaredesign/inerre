@@ -12,6 +12,9 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { RGBELoader } from "three/addons/loaders/RGBELoader.js";
 import { Engine } from "./src/core/Engine.js";
 import { SceneManager } from "./src/core/SceneManager.js";
+import { LightManager } from "./src/core/lighting/LightManager.js";
+import { CameraManager } from "./src/core/lighting/CameraManager.js";
+import { ParticleSystem } from "./src/core/effects/ParticleSystem.js";
 import { applyModeVisibility } from "./src/ui/ModeUI.js";
 import { MeshEditMode, ensureIndexedGeometry as ensureIndexedGeometryHelper, buildSubData as buildSubDataHelper } from "./src/modes/MeshEditMode.js";
 import { CadMode } from "./src/modes/CadMode.js";
@@ -1188,9 +1191,9 @@ scene.add(root, roomGroup, objectGroup, landscapeGroup);
 
 let gridHelper = null;
 let vpFrontCam = null, vpTopCam = null, vpLeftCam = null;
-let orthoCam = null;
-let particleSys = null;
-const lights = { hemi: null, sun: null, fill: null, bounce: null, spot: null };
+let lightManager = null;
+let camManager = null;
+let particleSystem = null;
 let vpFrontGrid = null, vpTopGrid = null, vpLeftGrid = null;
 let quadViewActive = false;
 const textureCache = new Map();
@@ -2914,101 +2917,39 @@ function clearVegetation() {
 }
 
 function initLighting() {
-  const ambient = new THREE.HemisphereLight(0xffffff, 0x283038, 1.5);
-  ambient.intensity = 0.9;
-  scene.add(ambient);
-  lights.hemi = ambient;
-
-  const sun = new THREE.DirectionalLight(0xfff4e0, 2.8);
-  sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
-  sun.shadow.camera.near = 0.5;
-  sun.shadow.camera.far = 40;
-  sun.shadow.camera.left = -14;
-  sun.shadow.camera.right = 14;
-  sun.shadow.camera.top = 14;
-  sun.shadow.camera.bottom = -14;
-  sun.shadow.bias = -0.0004;
-  sun.shadow.normalBias = 0.02;
-  scene.add(sun);
-  lights.sun = sun;
-  window.__inerreSun = sun;
-
-  const fill = new THREE.DirectionalLight(0xa8c8ff, 0.6);
-  fill.position.set(-6, 4, -5);
-  scene.add(fill);
-  lights.fill = fill;
-
-  const bounce = new THREE.PointLight(0xffffff, 0.35, 20);
-  bounce.position.set(0, 1.2, 0);
-  scene.add(bounce);
-  lights.bounce = bounce;
-
-  const spot = new THREE.SpotLight(0xffffff, 3, 30, Math.PI / 6, 0.5, 1);
-  spot.position.set(0, 6, 3);
-  spot.visible = false;
-  scene.add(spot);
-  lights.spot = spot;
-
+  lightManager = new LightManager(scene, state.render);
+  camManager = new CameraManager(camera, {
+    getTarget: () => (controls ? controls.target : new THREE.Vector3()),
+    getAspect: () => {
+      const rect = dom.viewport.getBoundingClientRect();
+      return rect.width && rect.height ? rect.width / rect.height : 1;
+    },
+  });
+  particleSystem = new ParticleSystem(scene, {
+    getOrigin: () => {
+      if (state.selectedIds.length) {
+        const m = findMesh(state.selectedIds[0]);
+        if (m) return m.getWorldPosition(new THREE.Vector3());
+      }
+      return null;
+    },
+  });
   gridHelper = new THREE.GridHelper(40, 40, 0x4f6660, 0x2c3436);
   gridHelper.position.y = 0.01;
   scene.add(gridHelper);
-
-  syncLightsFromState();
 }
 
 function syncLightsFromState() {
-  const r = state.render;
-  const sun = lights.sun;
-  if (sun) {
-    const elev = Math.max(1, r.sunElevation) * Math.PI / 180;
-    const azim = r.sunAzimuth * Math.PI / 180;
-    const d = 20;
-    sun.position.set(
-      d * Math.cos(elev) * Math.cos(azim),
-      d * Math.sin(elev),
-      d * Math.cos(elev) * Math.sin(azim)
-    );
-    sun.intensity = r.sunIntensity;
-    sun.castShadow = r.sunShadows;
-  }
-  if (lights.hemi) lights.hemi.intensity = r.hemiIntensity;
-  const spot = lights.spot;
-  if (spot) {
-    spot.visible = r.spotOn;
-    spot.intensity = r.spotIntensity;
-    const p = r.spotPos;
-    spot.position.set(p.x, p.y, p.z);
-    spot.target.position.set(0, 0, 0);
-    scene.add(spot.target);
-  }
+  if (lightManager) lightManager.sync(state.render);
 }
 
 function getActiveCamera() {
-  if (state.render.camMode === "ortho") {
-    if (!orthoCam) {
-      orthoCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 400);
-      const rect = dom.viewport.getBoundingClientRect();
-      if (rect.width && rect.height) {
-        orthoCam.aspect = rect.width / rect.height;
-      }
-    }
-    const dist = 18;
-    orthoCam.position.copy(camera.position);
-    orthoCam.lookAt(controls.target);
-    const aspect = orthoCam.aspect || 1;
-    orthoCam.left = -dist * aspect;
-    orthoCam.right = dist * aspect;
-    orthoCam.top = dist;
-    orthoCam.bottom = -dist;
-    orthoCam.updateProjectionMatrix();
-    return orthoCam;
-  }
-  return camera;
+  return camManager ? camManager.active() : camera;
 }
 
 function setCamMode(mode) {
   state.render.camMode = mode === "ortho" ? "ortho" : "persp";
+  if (camManager) camManager.switchMode(state.render.camMode);
   const sel = document.querySelector("#camModeSelect");
   if (sel) sel.value = state.render.camMode;
   const btn = document.querySelector("#camModeBtn");
@@ -3031,121 +2972,26 @@ function toggleRenderLightPanel() {
 /* ============================================================
    Effets de particules (neige / pluie / feu / étincelles / fumée)
    + brouillard — pilotés depuis Landscape (météo) et Cinématique
+   Délégation vers src/core/effects/ParticleSystem.js
    ============================================================ */
-let thisVelocities = null;
-
-const PARTICLE_CFG = {
-  snow: { count: 1200, color: 0xffffff, size: 0.35, opacity: 0.85, box: [14, 16, 14], vel: [0, -1.4, 0], jitter: [0.35, 0, 0.35] },
-  rain: { count: 900, color: 0x9fc4e8, size: 0.12, opacity: 0.9, box: [9, 20, 9], vel: [0, -14, 0], jitter: [0.5, 0, 0.5] },
-  fire: { count: 400, color: 0xff5500, size: 0.8, opacity: 0.9, origin: null, vel: [0, 2.2, 0], jitter: [0.6, 0, 0.6] },
-  sparks: { count: 500, color: 0xffcc44, size: 0.16, opacity: 1, origin: null, vel: [0, 3.4, 0], jitter: [1.4, 1.2, 1.4] },
-  smoke: { count: 300, color: 0x999999, size: 1.1, opacity: 0.35, origin: null, vel: [0, 1.1, 0], jitter: [0.5, 0, 0.5] },
-};
-
 function setParticleEffect(kind) {
   const sel = document.querySelector("#landscapeParticleSelect");
   const cineSel = document.querySelector("#cineParticleSelect");
-  const valid = PARTICLE_CFG[kind] || kind === "fog";
+  const valid = particleSystem ? particleSystem.has(kind) : false;
   state.particle.kind = valid ? kind : "none";
   if (sel) sel.value = (kind === "snow" || kind === "rain") ? kind : "none";
   if (cineSel) cineSel.value = (kind === "fire" || kind === "sparks" || kind === "smoke") ? kind : "none";
   if (state.particle.kind === "fog") {
-    clearParticles();
+    if (particleSystem) particleSystem.clear();
     scene.fog = new THREE.FogExp2(0xafc3d2, 0.02 * state.particle.intensity);
     return;
   }
   scene.fog = null;
-  if (state.particle.kind === "none") {
-    clearParticles();
-    return;
-  }
-  buildParticlePoints();
-}
-
-function buildParticlePoints() {
-  clearParticles();
-  const kind = state.particle.kind;
-  const cfg = PARTICLE_CFG[kind];
-  if (!cfg) return;
-  let ox = 0, oy = 0.5, oz = 0;
-  if (state.selectedIds.length) {
-    const m = findMesh(state.selectedIds[0]);
-    if (m) {
-      const w = m.getWorldPosition(new THREE.Vector3());
-      ox = w.x; oy = w.y + 0.5; oz = w.z;
-    }
-  }
-  const count = cfg.count;
-  const geom = new THREE.BufferGeometry();
-  const pos = new Float32Array(count * 3);
-  thisVelocities = new Float32Array(count * 3);
-  const spans = kind === "fire" || kind === "sparks" || kind === "smoke" ? [1.6, 0.3, 1.6] : cfg.box;
-  for (let i = 0; i < count; i++) {
-    const idx = i * 3;
-    pos[idx] = ox + (Math.random() - 0.5) * spans[0];
-    pos[idx + 1] = oy + Math.random() * spans[1];
-    pos[idx + 2] = oz + (Math.random() - 0.5) * spans[2];
-    thisVelocities[idx] = cfg.vel[0] * state.particle.intensity + (Math.random() - 0.5) * cfg.jitter[0];
-    const vySign = cfg.vel[1] >= 0 ? 1 : -1;
-    thisVelocities[idx + 1] = vySign * state.particle.intensity * Math.abs(cfg.vel[1]) * (0.6 + Math.random() * 0.8);
-    if (cfg.jitter[1]) thisVelocities[idx + 1] += (Math.random() - 0.5) * cfg.jitter[1];
-    thisVelocities[idx + 2] = cfg.vel[2] * state.particle.intensity + (Math.random() - 0.5) * cfg.jitter[2];
-  }
-  geom.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-  const mat = new THREE.PointsMaterial({
-    color: cfg.color,
-    size: cfg.size,
-    transparent: true,
-    opacity: cfg.opacity,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
-  });
-  const points = new THREE.Points(geom, mat);
-  points.userData.particleKind = kind;
-  points.userData.origin = new THREE.Vector3(ox, oy, oz);
-  points.userData.box = cfg.box;
-  scene.add(points);
-  particleSys = points;
-}
-
-function clearParticles() {
-  if (particleSys) {
-    scene.remove(particleSys);
-    particleSys.geometry.dispose();
-    particleSys.material.dispose();
-    particleSys = null;
-  }
-  thisVelocities = null;
+  if (particleSystem) particleSystem.set(state.particle.kind, state.particle.intensity);
 }
 
 function updateParticles(dt) {
-  if (!particleSys) return;
-  const kind = particleSys.userData.particleKind;
-  const pos = particleSys.geometry.attributes.position.array;
-  const count = pos.length / 3;
-  const box = particleSys.userData.box;
-  for (let i = 0; i < count; i++) {
-    const idx = i * 3;
-    pos[idx] += thisVelocities[idx] * dt;
-    pos[idx + 1] += thisVelocities[idx + 1] * dt;
-    pos[idx + 2] += thisVelocities[idx + 2] * dt;
-    if (kind === "snow" && pos[idx + 1] < 0) {
-      pos[idx + 1] = box[1];
-      pos[idx] = (Math.random() - 0.5) * box[0];
-      pos[idx + 2] = (Math.random() - 0.5) * box[2];
-    } else if (kind === "rain" && pos[idx + 1] < 0) {
-      pos[idx + 1] = box[1];
-    } else if ((kind === "fire" || kind === "smoke") && pos[idx + 1] > particleSys.userData.origin.y + 6) {
-      pos[idx] = particleSys.userData.origin.x + (Math.random() - 0.5) * 1.2;
-      pos[idx + 1] = particleSys.userData.origin.y + 0.3 + Math.random() * 0.8;
-      pos[idx + 2] = particleSys.userData.origin.z + (Math.random() - 0.5) * 1.2;
-    } else if (kind === "sparks" && pos[idx + 1] > particleSys.userData.origin.y + 3) {
-      pos[idx] = particleSys.userData.origin.x + (Math.random() - 0.5) * 1.2;
-      pos[idx + 1] = particleSys.userData.origin.y + 0.3;
-      pos[idx + 2] = particleSys.userData.origin.z + (Math.random() - 0.5) * 1.2;
-    }
-  }
-  particleSys.geometry.attributes.position.needsUpdate = true;
+  if (particleSystem) particleSystem.update(dt);
 }
 
 function clearFogForProject() {
@@ -8097,10 +7943,7 @@ function resize() {
     camera.aspect = rect.width / rect.height;
     camera.updateProjectionMatrix();
     renderer.setSize(Math.round(rect.width), Math.round(rect.height), true);
-    if (orthoCam) {
-      orthoCam.aspect = rect.width / rect.height;
-      orthoCam.updateProjectionMatrix();
-    }
+    if (camManager) camManager.setOrthoAspect(rect.width / rect.height);
     if (vpFrontCam) {
       const s = Math.max(rect.width, rect.height) / 40;
       vpFrontCam.left = -s; vpFrontCam.right = s;
@@ -8196,5 +8039,5 @@ function escapeHTML(value) {
 }
 
 if (new URLSearchParams(location.search).get("debug") === "1") {
-  window.__iner = { state, toProjectJSON, loadProject, createMesh, registerImported, renderCustomLibrary, addCustomInstance, engine: __engine, sceneManager: __sceneManager, meshEditMode: meshEditObj, sculptMode: sculptModeObj, setMode, setParticleEffect, setCamMode, toggleRenderLightPanel, syncLightsFromState, sun: lights.sun };
+  window.__iner = { state, toProjectJSON, loadProject, createMesh, registerImported, renderCustomLibrary, addCustomInstance, engine: __engine, sceneManager: __sceneManager, meshEditMode: meshEditObj, sculptMode: sculptModeObj, setMode, setParticleEffect, setCamMode, toggleRenderLightPanel, syncLightsFromState, sun: lightManager ? lightManager.lights.sun : null };
 }
