@@ -872,6 +872,8 @@ const state = {
   selectedIds: [],
   assets: {},
   clusters: [],
+  materials: [],
+  collection: [],
   draw: {
     tool: null,
     active: false,
@@ -942,16 +944,26 @@ const materialLibrary = {
   woodOak: { label: "Wood oak", color: "#b98a55", roughness: 0.68, texture: "wood" },
   woodWalnut: { label: "Wood walnut", color: "#6f4a32", roughness: 0.72, texture: "wood" },
   tile: { label: "Carrelage", color: "#d8d1c2", roughness: 0.42, texture: "tile" },
-  glass: { label: "Glass", color: "#88c8d8", roughness: 0.06, metalness: 0, opacity: 0.42, transparent: true },
+  glass: { label: "Glass", color: "#bcd8e2", roughness: 0.08, metalness: 0, opacity: 0.55, transparent: true },
   metal: { label: "Metal", color: "#8f9698", roughness: 0.28, metalness: 0.75 },
   fabric: { label: "Fabric", color: "#bb7d5a", roughness: 0.96, texture: "fabric" },
   ceramic: { label: "Ceramic", color: "#f2eee4", roughness: 0.34 },
   darkScreen: { label: "Black glass", color: "#07090b", roughness: 0.18, metalness: 0.2 },
   lightWarm: { label: "Light warm", color: "#ffe7a3", roughness: 0.12 },
-  water: { label: "Eau fluide", color: "#2f7fb2", roughness: 0.08, metalness: 0.42, transparent: true, opacity: 0.82, side: THREE.DoubleSide },
+  water: { label: "Eau fluide", color: "#2f7fb2", roughness: 0.05, metalness: 0, transparent: true, opacity: 0.8, side: THREE.DoubleSide },
   smokeGas: { label: "Gaz / fumée", color: "#9aa4ac", roughness: 0.55, transparent: true, opacity: 0.2, blend: "additive", side: THREE.DoubleSide },
   rock: { label: "Roche", color: "#6a6a6a", roughness: 0.86, metalness: 0.08 },
 };
+
+function materialDef(key) {
+  const base = materialLibrary[key] || materialLibrary.paintWarm;
+  const custom = state.materials.find((m) => m.key === key);
+  return custom ? { ...base, ...custom } : base;
+}
+
+function slugKey(name) {
+  return String(name).trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "mat_" + Date.now();
+}
 
 const stylePresets = {
   american: {
@@ -3325,6 +3337,11 @@ function bindUI() {
   document.querySelectorAll("[data-material]").forEach((button) => {
     button.addEventListener("click", () => applyMaterialToSelection(button.dataset.material));
   });
+  document.querySelector("#addMaterialBtn")?.addEventListener("click", addCustomMaterial);
+  document.querySelector("#addToLibBtn")?.addEventListener("click", addSelectedToCollection);
+  refreshObjectMaterialOptions();
+  renderCustomMaterials();
+  renderCollection();
 
   document.querySelectorAll("[data-draw-tool]").forEach((button) => {
     button.addEventListener("click", () => setDrawTool(button.dataset.drawTool));
@@ -3368,8 +3385,8 @@ function bindUI() {
   dom.planCanvas.addEventListener("pointerup", endPlanSegment);
   dom.planCanvas.addEventListener("pointerleave", endPlanSegment);
 
-  ["objectName", "posX", "posY", "posZ", "scaleX", "scaleY", "scaleZ", "rotX", "rotY", "rotZ", "objectColor", "objectMaterial"].forEach((id) => {
-    document.querySelector(`#${id}`).addEventListener("input", updateSelectedFromInspector);
+  ["objectName", "posX", "posY", "posZ", "scaleX", "scaleY", "scaleZ", "rotX", "rotY", "rotZ", "dimL", "dimH", "dimP", "matRoughness", "matMetalness", "matOpacity", "objectColor", "objectMaterial"].forEach((id) => {
+    document.querySelector(`#${id}`).addEventListener("input", (e) => updateSelectedFromInspector(e));
   });
   document.querySelector("#planScale").addEventListener("input", () => {
     state.plan.scale = numberValue("planScale", state.plan.scale);
@@ -3846,12 +3863,13 @@ function defaultSpec(type, id) {
 
 function createMesh(spec) {
   let mesh;
-  const material = createMaterial(spec.material, { fallbackColor: spec.color });
-  const darkMaterial = createMaterial("darkScreen");
-  const glassMaterial = createMaterial("glass");
-  const metalMaterial = createMaterial("metal");
-  const lightMaterial = createMaterial("lightWarm");
-  const ceramicMaterial = createMaterial("ceramic");
+  const matOptions = materialOverrides(spec);
+  const material = createMaterial(spec.material, { ...matOptions, fallbackColor: spec.color });
+  const darkMaterial = createMaterial("darkScreen", { ...matOptions, fallbackColor: "#07090b" });
+  const glassMaterial = createMaterial("glass", { ...matOptions, fallbackColor: "#bcd8e2" });
+  const metalMaterial = createMaterial("metal", { ...matOptions, fallbackColor: "#8f9698" });
+  const lightMaterial = createMaterial("lightWarm", { ...matOptions, fallbackColor: "#ffe7a3" });
+  const ceramicMaterial = createMaterial("ceramic", { ...matOptions, fallbackColor: "#f2eee4" });
 
   if (spec.type === "custom") {
     const asset = state.assets[spec.assetId];
@@ -3859,9 +3877,11 @@ function createMesh(spec) {
     if (asset) {
       const geo = asset.geometry.clone();
       const mat = new THREE.MeshStandardMaterial({
-        color: asset.color || "#cccccc",
-        roughness: asset.roughness ?? 0.6,
-        metalness: asset.metalness ?? 0.05,
+        color: spec.color || asset.color || "#cccccc",
+        roughness: spec.roughness != null ? spec.roughness : asset.roughness ?? 0.6,
+        metalness: spec.metalness != null ? spec.metalness : asset.metalness ?? 0.05,
+        transparent: (spec.opacity != null && spec.opacity < 1) || false,
+        opacity: spec.opacity != null ? spec.opacity : 1,
       });
       const part = new THREE.Mesh(geo, mat);
       part.castShadow = true;
@@ -4148,10 +4168,18 @@ function applySpec(mesh, spec) {
   mesh.position.set(spec.position.x, spec.position.y, spec.position.z);
   mesh.scale.set(spec.scale.x, spec.scale.y, spec.scale.z);
   mesh.rotation.set(spec.rotation?.x || 0, spec.rotation?.y || 0, spec.rotation?.z || 0);
-  const material = createMaterial(spec.material, { fallbackColor: spec.color });
+  const overrides = materialOverrides(spec);
   mesh.traverse((child) => {
-    if (child.isMesh) child.material = createMaterial(child.userData.materialKey || spec.material, { fallbackColor: spec.color });
+    if (child.isMesh) child.material = createMaterial(child.userData.materialKey || spec.material, { ...overrides, fallbackColor: spec.color });
   });
+}
+
+function materialOverrides(spec) {
+  const out = {};
+  if (spec.roughness != null) out.roughness = spec.roughness;
+  if (spec.metalness != null) out.metalness = spec.metalness;
+  if (spec.opacity != null && spec.opacity < 1) { out.opacity = spec.opacity; out.transparent = true; }
+  return out;
 }
 
 function getSelectedMesh() {
@@ -4162,6 +4190,37 @@ function getSelectedMesh() {
   let mesh = null;
   obj.traverse((child) => { if (child.isMesh) mesh = child; });
   return mesh;
+}
+
+function getBaseDims(mesh) {
+  if (!mesh) return { x: 1, y: 1, z: 1 };
+  if (mesh.userData.baseDims) return mesh.userData.baseDims;
+  mesh.updateWorldMatrix(true, false);
+  const box = new THREE.Box3().setFromObject(mesh);
+  const size = box.getSize(new THREE.Vector3());
+  const scale = mesh.getWorldScale(new THREE.Vector3());
+  const d = {
+    x: size.x / (scale.x || 1),
+    y: size.y / (scale.y || 1),
+    z: size.z / (scale.z || 1),
+  };
+  if (!(d.x > 0.0001)) d.x = 1;
+  if (!(d.y > 0.0001)) d.y = 1;
+  if (!(d.z > 0.0001)) d.z = 1;
+  mesh.userData.baseDims = d;
+  return d;
+}
+
+function objectDims(mesh, spec) {
+  const b = getBaseDims(mesh);
+  return { x: b.x * spec.scale.x, y: b.y * spec.scale.y, z: b.z * spec.scale.z };
+}
+
+function applyDimToScale(spec, mesh, axis, value) {
+  const b = getBaseDims(mesh);
+  const target = Number(value);
+  if (!Number.isFinite(target) || target <= 0) return;
+  spec.scale[axis] = target / b[axis];
 }
 
 function subdivideSelected() {
@@ -4387,13 +4446,13 @@ function collapseSelected() {
 }
 
 function createMaterial(key = "paintWarm", options = {}) {
-  const spec = materialLibrary[key] || materialLibrary.paintWarm;
+  const spec = materialDef(key);
   const material = new THREE.MeshStandardMaterial({
     color: spec.color || options.fallbackColor || "#cccccc",
-    roughness: spec.roughness ?? 0.7,
-    metalness: spec.metalness ?? 0,
-    transparent: spec.transparent || false,
-    opacity: spec.opacity ?? 1,
+    roughness: options.roughness != null ? options.roughness : spec.roughness ?? 0.7,
+    metalness: options.metalness != null ? options.metalness : spec.metalness ?? 0,
+    transparent: options.transparent != null ? options.transparent : spec.transparent || false,
+    opacity: options.opacity != null ? options.opacity : spec.opacity ?? 1,
     side: options.side || spec.side || THREE.FrontSide,
   });
   if (spec.blend === "additive") {
@@ -5014,6 +5073,15 @@ function renderInspector() {
   setValue("scaleX", spec.scale.x);
   setValue("scaleY", spec.scale.y);
   setValue("scaleZ", spec.scale.z);
+  const mesh = findMesh(id);
+  const dims = objectDims(mesh, spec);
+  setValue("dimL", Math.round(dims.x * 100) / 100);
+  setValue("dimH", Math.round(dims.y * 100) / 100);
+  setValue("dimP", Math.round(dims.z * 100) / 100);
+  const def = materialDef(spec.material);
+  setRangeProgress("matRoughness", "matRoughnessVal", spec.roughness ?? def.roughness ?? 0.7);
+  setRangeProgress("matMetalness", "matMetalnessVal", spec.metalness ?? def.metalness ?? 0);
+  setRangeProgress("matOpacity", "matOpacityVal", spec.opacity ?? def.opacity ?? 1);
   setValue("objectColor", spec.color);
   setValue("objectMaterial", spec.material || "paintWarm");
   setValue("rotX", THREE.MathUtils.radToDeg(spec.rotation?.x || 0));
@@ -5021,17 +5089,24 @@ function renderInspector() {
   setValue("rotZ", THREE.MathUtils.radToDeg(spec.rotation?.z || 0));
 }
 
+function setRangeProgress(inputId, valId, value) {
+  setValue(inputId, value);
+  const display = document.querySelector(`#${valId}`);
+  if (display) display.textContent = Number(value).toFixed(2);
+}
+
 function setValue(id, value) {
   const input = document.querySelector(`#${id}`);
   if (document.activeElement !== input) input.value = value;
 }
 
-function updateSelectedFromInspector() {
+function updateSelectedFromInspector(event) {
   const id = primaryId();
   if (!id) return;
   const spec = findSpec(id);
   const mesh = findMesh(id);
   if (!spec || !mesh) return;
+  const changedMaterial = event && event.target && event.target.id === "objectMaterial";
   spec.name = document.querySelector("#objectName").value || spec.name;
   spec.position = {
     x: numberValue("posX", spec.position.x),
@@ -5050,8 +5125,27 @@ function updateSelectedFromInspector() {
   };
   spec.color = document.querySelector("#objectColor").value;
   spec.material = document.querySelector("#objectMaterial").value;
+  if (changedMaterial) {
+    delete spec.roughness;
+    delete spec.metalness;
+    delete spec.opacity;
+  } else {
+    const dimL = Number(document.querySelector("#dimL").value);
+    const dimH = Number(document.querySelector("#dimH").value);
+    const dimP = Number(document.querySelector("#dimP").value);
+    if (Number.isFinite(dimL) && dimL > 0) applyDimToScale(spec, mesh, "x", dimL);
+    if (Number.isFinite(dimH) && dimH > 0) applyDimToScale(spec, mesh, "y", dimH);
+    if (Number.isFinite(dimP) && dimP > 0) applyDimToScale(spec, mesh, "z", dimP);
+    const matRoughness = Number(document.querySelector("#matRoughness").value);
+    const matMetalness = Number(document.querySelector("#matMetalness").value);
+    const matOpacity = Number(document.querySelector("#matOpacity").value);
+    if (Number.isFinite(matRoughness)) spec.roughness = Math.max(0, Math.min(1, round(matRoughness)));
+    if (Number.isFinite(matMetalness)) spec.metalness = Math.max(0, Math.min(1, round(matMetalness)));
+    if (Number.isFinite(matOpacity)) spec.opacity = round(matOpacity);
+  }
   applySpec(mesh, spec);
   renderObjectList();
+  renderInspector();
 }
 
 function numberValue(id, fallback) {
@@ -5141,7 +5235,7 @@ function applyStylePreset() {
   const preset = stylePresets[state.style] || stylePresets.american;
   state.objects.forEach((object) => {
     object.material = materialForType(object.type, preset);
-    object.color = materialLibrary[object.material]?.color || object.color;
+    object.color = materialDef(object.material)?.color || object.color;
     const mesh = findMesh(object.id);
     if (mesh) applySpec(mesh, object);
   });
@@ -5156,7 +5250,10 @@ function applyMaterialToSelection(materialKey) {
     const mesh = findMesh(id);
     if (!spec || !mesh) return;
     spec.material = materialKey;
-    spec.color = materialLibrary[materialKey]?.color || spec.color;
+    spec.color = materialDef(materialKey).color || spec.color;
+    delete spec.roughness;
+    delete spec.metalness;
+    delete spec.opacity;
     applySpec(mesh, spec);
   });
   renderInspector();
@@ -5211,6 +5308,11 @@ function newProject() {
   state.selectedIds = [];
   state.clusters = [];
   state.assets = {};
+  state.materials = [];
+  state.collection = [];
+  refreshObjectMaterialOptions();
+  renderCustomMaterials();
+  renderCollection();
   state.room = { width: 7, depth: 5, height: 3 };
   state.draw = { tool: null, active: false, shapes: [], current: null, scale: 100 };
   state.boolean = { active: false, firstId: null, operation: "subtract" };
@@ -5291,6 +5393,8 @@ function toProjectJSON() {
     plan: state.plan,
     objects: state.objects,
     clusters: state.clusters,
+    materials: state.materials,
+    collection: state.collection,
     assets: Object.fromEntries(Object.entries(state.assets).map(([id, asset]) => [id, {
       name: asset.name || "Objet importé",
       color: asset.color || "#cccccc",
@@ -5354,6 +5458,10 @@ function loadProject(project, fileName) {
   });
   state.name = project.name || fileName.replace(/\.(pix|inrproject)$/i, "");
   state.style = project.style || "american";
+  state.materials = Array.isArray(project.materials) ? project.materials.filter((m) => m && m.key && m.label) : [];
+  state.collection = Array.isArray(project.collection)
+    ? project.collection.filter((e) => e && e.spec).map((e) => ({ id: e.id || crypto.randomUUID(), name: e.name || "Objet", spec: e.spec }))
+    : [];
   state.room = project.room || state.room;
   state.plan = {
     imageDataUrl: project.plan?.imageDataUrl || "",
@@ -5432,6 +5540,9 @@ function loadProject(project, fileName) {
 
   restoreCineData(project.cine);
 
+  refreshObjectMaterialOptions();
+  renderCustomMaterials();
+  renderCollection();
   updateProjectUI();
 }
 
@@ -5828,6 +5939,158 @@ function addCustomInstance(assetId) {
   objectGroup.add(mesh);
   selectObject(spec.id);
   renderObjectList();
+}
+
+function refreshObjectMaterialOptions() {
+  const select = document.querySelector("#objectMaterial");
+  if (!select) return;
+  const current = select.value;
+  const keys = Object.keys(materialLibrary);
+  state.materials.forEach((m) => { if (!keys.includes(m.key)) keys.push(m.key); });
+  select.innerHTML = "";
+  keys.forEach((k) => {
+    const option = document.createElement("option");
+    option.value = k;
+    option.textContent = materialDef(k).label || k;
+    select.appendChild(option);
+  });
+  if (current && select.querySelector(`option[value="${current}"]`)) select.value = current;
+}
+
+function renderCustomMaterials() {
+  const list = document.querySelector("#customMatList");
+  if (!list) return;
+  list.innerHTML = "";
+  state.materials.forEach((mat) => {
+    const row = document.createElement("div");
+    row.className = "custom-mat-row";
+    const swatch = document.createElement("input");
+    swatch.type = "color";
+    swatch.value = mat.color;
+    const name = document.createElement("span");
+    name.className = "custom-mat-name";
+    name.textContent = mat.label || mat.key;
+    name.title = mat.key;
+    const rough = document.createElement("input");
+    rough.type = "range"; rough.min = 0; rough.max = 1; rough.step = 0.01; rough.value = mat.roughness ?? 0.6;
+    rough.title = "Rugosité";
+    const metal = document.createElement("input");
+    metal.type = "range"; metal.min = 0; metal.max = 1; metal.step = 0.01; metal.value = mat.metalness ?? 0;
+    metal.title = "Métallicité";
+    const apply = document.createElement("button");
+    apply.textContent = "Appliquer";
+    apply.title = "Appliquer ce matériau à la sélection";
+    const del = document.createElement("button");
+    del.textContent = "Suppr";
+    del.title = "Supprimer ce matériau";
+    const update = (patch) => Object.assign(mat, patch);
+    swatch.addEventListener("input", () => update({ color: swatch.value }));
+    rough.addEventListener("input", () => update({ roughness: Number(rough.value) }));
+    metal.addEventListener("input", () => update({ metalness: Number(metal.value) }));
+    apply.addEventListener("click", () => applyCustomMaterial(mat));
+    del.addEventListener("click", () => {
+      state.materials = state.materials.filter((m) => m.key !== mat.key);
+      renderCustomMaterials();
+      refreshObjectMaterialOptions();
+    });
+    row.append(swatch, name, rough, metal, apply, del);
+    list.appendChild(row);
+  });
+}
+
+function addCustomMaterial() {
+  const nameInput = document.querySelector("#newMatName");
+  const name = (nameInput.value || "").trim();
+  if (!name) return;
+  const color = document.querySelector("#newMatColor").value;
+  let key = slugKey(name);
+  let i = 2;
+  while (state.materials.some((m) => m.key === key) || materialLibrary[key]) key = `${slugKey(name)}_${i++}`;
+  state.materials.push({ key, label: name, color });
+  nameInput.value = "";
+  renderCustomMaterials();
+  refreshObjectMaterialOptions();
+}
+
+function applyCustomMaterial(mat) {
+  if (!state.selectedIds.length) return;
+  pushUndo();
+  state.selectedIds.forEach((id) => {
+    const spec = findSpec(id);
+    const mesh = findMesh(id);
+    if (!spec || !mesh) return;
+    spec.material = mat.key;
+    spec.color = mat.color;
+    if (mat.roughness != null) spec.roughness = mat.roughness;
+    if (mat.metalness != null) spec.metalness = mat.metalness;
+    applySpec(mesh, spec);
+  });
+  renderInspector();
+}
+
+function addSelectedToCollection() {
+  const id = primaryId();
+  const spec = findSpec(id);
+  const mesh = findMesh(id);
+  if (!spec || !mesh) return;
+  state.collection.push({ id: crypto.randomUUID(), name: spec.name, spec: JSON.parse(JSON.stringify(spec)) });
+  renderCollection();
+}
+
+function addCollectionInstance(entryId) {
+  const entry = state.collection.find((e) => e.id === entryId);
+  if (!entry) return;
+  pushUndo();
+  const spec = JSON.parse(JSON.stringify(entry.spec));
+  spec.id = crypto.randomUUID();
+  spec.name = entry.name;
+  state.objects.push(spec);
+  const mesh = createMesh(spec);
+  objectGroup.add(mesh);
+  if (spec.textureDataUrl) applyTextureToMesh(mesh, spec, spec.textureDataUrl);
+  selectObject(spec.id);
+  renderObjectList();
+}
+
+function renderCollection() {
+  const list = document.querySelector("#customObjList");
+  if (!list) return;
+  list.innerHTML = "";
+  state.collection.forEach((entry) => {
+    const row = document.createElement("div");
+    row.className = "collection-item";
+    const add = document.createElement("button");
+    add.className = "custom-lib-item";
+    add.textContent = entry.name;
+    add.title = "Ajouter au projet";
+    add.addEventListener("click", () => addCollectionInstance(entry.id));
+    const rename = document.createElement("button");
+    rename.textContent = "Ren";
+    rename.title = "Renommer";
+    rename.addEventListener("click", () => {
+      const next = prompt("Nouveau nom :", entry.name);
+      if (next && next.trim()) { entry.name = next.trim(); renderCollection(); }
+    });
+    const dupe = document.createElement("button");
+    dupe.textContent = "Dup";
+    dupe.title = "Dupliquer l'entrée";
+    dupe.addEventListener("click", () => {
+      const copy = JSON.parse(JSON.stringify(entry));
+      copy.id = crypto.randomUUID();
+      copy.name = `${entry.name} copie`;
+      state.collection.push(copy);
+      renderCollection();
+    });
+    const del = document.createElement("button");
+    del.textContent = "×";
+    del.title = "Supprimer l'entrée";
+    del.addEventListener("click", () => {
+      state.collection = state.collection.filter((e) => e.id !== entry.id);
+      renderCollection();
+    });
+    row.append(add, rename, dupe, del);
+    list.appendChild(row);
+  });
 }
 
 function duplicateSelected() {

@@ -516,6 +516,11 @@
                   </div>
                 </div>
                 <div class="library-group" data-modes="CAD MESH_EDIT">
+                  <p>Ma collection</p>
+                  <button id="addToLibBtn" class="wide" title="Ajouter l'objet sélectionné à la bibliothèque">+ Ajouter la sélection</button>
+                  <div id="customObjList" class="custom-lib"></div>
+                </div>
+                <div class="library-group" data-modes="CAD MESH_EDIT">
                   <p>Mes objets (OBJ / FBX / GLB)</p>
                   <div class="tool-grid">
                     <button id="importObjBtn">Importer OBJ</button>
@@ -587,6 +592,11 @@
                   <label>W <input id="scaleX" type="number" min="0.1" step="0.1" /></label>
                   <label>H <input id="scaleY" type="number" min="0.1" step="0.1" /></label>
                   <label>D <input id="scaleZ" type="number" min="0.1" step="0.1" /></label>
+                </div>
+                <div class="axis-grid">
+                  <label>L (m) <input id="dimL" type="number" min="0.05" step="0.05" /></label>
+                  <label>H (m) <input id="dimH" type="number" min="0.05" step="0.05" /></label>
+                  <label>P (m) <input id="dimP" type="number" min="0.05" step="0.05" /></label>
                 </div>
               </section>
               <section>
@@ -668,6 +678,12 @@
                 </div>
               </section>
               <section>
+                <h2>Réglages PBR</h2>
+                <label>Rugosité <input id="matRoughness" type="range" min="0" max="1" step="0.01" value="0.7" /> <span id="matRoughnessVal">0.70</span></label>
+                <label>Métallicité <input id="matMetalness" type="range" min="0" max="1" step="0.01" value="0" /> <span id="matMetalnessVal">0.00</span></label>
+                <label>Opacité <input id="matOpacity" type="range" min="0.05" max="1" step="0.01" value="1" /> <span id="matOpacityVal">1.00</span></label>
+              </section>
+              <section>
                 <h2>Style intérieur</h2>
                 <label>
                   <select id="stylePreset">
@@ -702,6 +718,15 @@
                   <button data-land-mat="brick"><span style="--swatch:#8a4a3a"></span>Brique</button>
                   <button data-land-mat="stone"><span style="--swatch:#7a7a7a"></span>Pierre</button>
                 </div>
+              </section>
+              <section>
+                <h2>Matériaux personnalisés</h2>
+                <div class="mat-create-row">
+                  <input id="newMatName" type="text" placeholder="Nom du matériau" />
+                  <input id="newMatColor" type="color" value="#7aa89a" />
+                  <button id="addMaterialBtn" class="wide primary">Ajouter</button>
+                </div>
+                <div id="customMatList" class="custom-mat-list"></div>
               </section>
               <section>
                 <h2>Couleur de l'objet</h2>
