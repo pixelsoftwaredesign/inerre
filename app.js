@@ -1207,6 +1207,7 @@ let gizmoDragging = false;
 let hlReg = new Map();
 let hlLastSig = "";
 let selectionBox = null;
+let clipboardSpecs = [];
 let vpFrontCam = null, vpTopCam = null, vpLeftCam = null;
 let lightManager = null;
 let camManager = null;
@@ -3618,6 +3619,16 @@ function bindUI() {
       } else if (event.key === "d") {
         event.preventDefault();
         duplicateSelected();
+      } else if (event.key === "c") {
+        const tag = event.target?.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+        event.preventDefault();
+        copySelected();
+      } else if (event.key === "v") {
+        const tag = event.target?.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+        event.preventDefault();
+        pasteClipboard();
       } else if (event.key === "a") {
         event.preventDefault();
         state.selectedIds = state.objects.map((o) => o.id);
@@ -6472,6 +6483,41 @@ function renderCollection() {
   });
 }
 
+function copySelected() {
+  if (!state.selectedIds.length) return;
+  clipboardSpecs = state.selectedIds
+    .map((id) => {
+      const spec = findSpec(id);
+      return spec ? JSON.parse(JSON.stringify(spec)) : null;
+    })
+    .filter(Boolean);
+}
+
+function pasteClipboard() {
+  if (!clipboardSpecs.length) return;
+  pushUndo();
+  const shift = 0.5;
+  const newIds = [];
+  clipboardSpecs.forEach((spec, i) => {
+    const newSpec = JSON.parse(JSON.stringify(spec));
+    newSpec.id = crypto.randomUUID();
+    newSpec.position.x += shift * (i + 1);
+    newSpec.position.z += shift * (i + 1);
+    state.objects.push(newSpec);
+    const mesh = createMesh(newSpec);
+    objectGroup.add(mesh);
+    newIds.push(newSpec.id);
+  });
+  state.selectedIds = newIds;
+  transformControls.detach();
+  if (newIds.length === 1) {
+    const mesh = findMesh(newIds[0]);
+    if (mesh) transformControls.attach(mesh);
+  }
+  renderObjectList();
+  renderInspector();
+}
+
 function duplicateSelected() {
   pushUndo();
   if (!state.selectedIds.length) return;
@@ -8300,5 +8346,5 @@ function escapeHTML(value) {
 }
 
 if (new URLSearchParams(location.search).get("debug") === "1") {
-  window.__iner = { state, toProjectJSON, loadProject, createMesh, registerImported, renderCustomLibrary, addCustomInstance, engine: __engine, sceneManager: __sceneManager, meshEditMode: meshEditObj, sculptMode: sculptModeObj, setMode, setParticleEffect, setCamMode, toggleRenderLightPanel, syncLightsFromState, syncPanoCamera, renderPanoramaImage, exportPanorama, buildGrid, GRID_THEMES, applyHighlightState, updateSelectionBox, setHoverId: (id) => { hoverId = id; }, sun: lightManager ? lightManager.lights.sun : null };
+  window.__iner = { state, toProjectJSON, loadProject, createMesh, registerImported, renderCustomLibrary, addCustomInstance, copySelected, pasteClipboard, deleteSelected, duplicateSelected, engine: __engine, sceneManager: __sceneManager, meshEditMode: meshEditObj, sculptMode: sculptModeObj, setMode, setParticleEffect, setCamMode, toggleRenderLightPanel, syncLightsFromState, syncPanoCamera, renderPanoramaImage, exportPanorama, buildGrid, GRID_THEMES, applyHighlightState, updateSelectionBox, setHoverId: (id) => { hoverId = id; }, sun: lightManager ? lightManager.lights.sun : null };
 }
