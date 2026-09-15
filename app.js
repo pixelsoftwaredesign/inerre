@@ -874,6 +874,21 @@ const state = {
   clusters: [],
   materials: [],
   collection: [],
+  render: {
+    camMode: "persp",
+    sunAzimuth: 30,
+    sunElevation: 50,
+    sunIntensity: 2.8,
+    sunShadows: true,
+    hemiIntensity: 0.9,
+    spotOn: false,
+    spotIntensity: 3,
+    spotPos: { x: 0, y: 6, z: 3 },
+  },
+  particle: {
+    kind: "none",
+    intensity: 1,
+  },
   draw: {
     tool: null,
     active: false,
@@ -1173,6 +1188,9 @@ scene.add(root, roomGroup, objectGroup, landscapeGroup);
 
 let gridHelper = null;
 let vpFrontCam = null, vpTopCam = null, vpLeftCam = null;
+let orthoCam = null;
+let particleSys = null;
+const lights = { hemi: null, sun: null, fill: null, bounce: null, spot: null };
 let vpFrontGrid = null, vpTopGrid = null, vpLeftGrid = null;
 let quadViewActive = false;
 const textureCache = new Map();
@@ -2899,9 +2917,9 @@ function initLighting() {
   const ambient = new THREE.HemisphereLight(0xffffff, 0x283038, 1.5);
   ambient.intensity = 0.9;
   scene.add(ambient);
+  lights.hemi = ambient;
 
   const sun = new THREE.DirectionalLight(0xfff4e0, 2.8);
-  sun.position.set(5, 8, 4);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
   sun.shadow.camera.near = 0.5;
@@ -2913,19 +2931,225 @@ function initLighting() {
   sun.shadow.bias = -0.0004;
   sun.shadow.normalBias = 0.02;
   scene.add(sun);
+  lights.sun = sun;
   window.__inerreSun = sun;
 
   const fill = new THREE.DirectionalLight(0xa8c8ff, 0.6);
   fill.position.set(-6, 4, -5);
   scene.add(fill);
+  lights.fill = fill;
 
   const bounce = new THREE.PointLight(0xffffff, 0.35, 20);
   bounce.position.set(0, 1.2, 0);
   scene.add(bounce);
+  lights.bounce = bounce;
+
+  const spot = new THREE.SpotLight(0xffffff, 3, 30, Math.PI / 6, 0.5, 1);
+  spot.position.set(0, 6, 3);
+  spot.visible = false;
+  scene.add(spot);
+  lights.spot = spot;
 
   gridHelper = new THREE.GridHelper(40, 40, 0x4f6660, 0x2c3436);
   gridHelper.position.y = 0.01;
   scene.add(gridHelper);
+
+  syncLightsFromState();
+}
+
+function syncLightsFromState() {
+  const r = state.render;
+  const sun = lights.sun;
+  if (sun) {
+    const elev = Math.max(1, r.sunElevation) * Math.PI / 180;
+    const azim = r.sunAzimuth * Math.PI / 180;
+    const d = 20;
+    sun.position.set(
+      d * Math.cos(elev) * Math.cos(azim),
+      d * Math.sin(elev),
+      d * Math.cos(elev) * Math.sin(azim)
+    );
+    sun.intensity = r.sunIntensity;
+    sun.castShadow = r.sunShadows;
+  }
+  if (lights.hemi) lights.hemi.intensity = r.hemiIntensity;
+  const spot = lights.spot;
+  if (spot) {
+    spot.visible = r.spotOn;
+    spot.intensity = r.spotIntensity;
+    const p = r.spotPos;
+    spot.position.set(p.x, p.y, p.z);
+    spot.target.position.set(0, 0, 0);
+    scene.add(spot.target);
+  }
+}
+
+function getActiveCamera() {
+  if (state.render.camMode === "ortho") {
+    if (!orthoCam) {
+      orthoCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 400);
+      const rect = dom.viewport.getBoundingClientRect();
+      if (rect.width && rect.height) {
+        orthoCam.aspect = rect.width / rect.height;
+      }
+    }
+    const dist = 18;
+    orthoCam.position.copy(camera.position);
+    orthoCam.lookAt(controls.target);
+    const aspect = orthoCam.aspect || 1;
+    orthoCam.left = -dist * aspect;
+    orthoCam.right = dist * aspect;
+    orthoCam.top = dist;
+    orthoCam.bottom = -dist;
+    orthoCam.updateProjectionMatrix();
+    return orthoCam;
+  }
+  return camera;
+}
+
+function setCamMode(mode) {
+  state.render.camMode = mode === "ortho" ? "ortho" : "persp";
+  const sel = document.querySelector("#camModeSelect");
+  if (sel) sel.value = state.render.camMode;
+  const btn = document.querySelector("#camModeBtn");
+  if (btn) btn.classList.toggle("active", state.render.camMode === "ortho");
+  resize();
+}
+
+function toggleRenderLightPanel() {
+  const panel = document.querySelector("#renderLightPanel");
+  if (!panel) return;
+  const hidden = panel.classList.toggle("hidden");
+  if (!hidden) {
+    document.querySelector("#arrayPanel").classList.add("hidden");
+    document.querySelector("#mirrorPanel").classList.add("hidden");
+    document.querySelector("#geoInfoPanel").classList.add("hidden");
+    document.querySelector("#measurePanel").classList.add("hidden");
+  }
+}
+
+/* ============================================================
+   Effets de particules (neige / pluie / feu / étincelles / fumée)
+   + brouillard — pilotés depuis Landscape (météo) et Cinématique
+   ============================================================ */
+let thisVelocities = null;
+
+const PARTICLE_CFG = {
+  snow: { count: 1200, color: 0xffffff, size: 0.35, opacity: 0.85, box: [14, 16, 14], vel: [0, -1.4, 0], jitter: [0.35, 0, 0.35] },
+  rain: { count: 900, color: 0x9fc4e8, size: 0.12, opacity: 0.9, box: [9, 20, 9], vel: [0, -14, 0], jitter: [0.5, 0, 0.5] },
+  fire: { count: 400, color: 0xff5500, size: 0.8, opacity: 0.9, origin: null, vel: [0, 2.2, 0], jitter: [0.6, 0, 0.6] },
+  sparks: { count: 500, color: 0xffcc44, size: 0.16, opacity: 1, origin: null, vel: [0, 3.4, 0], jitter: [1.4, 1.2, 1.4] },
+  smoke: { count: 300, color: 0x999999, size: 1.1, opacity: 0.35, origin: null, vel: [0, 1.1, 0], jitter: [0.5, 0, 0.5] },
+};
+
+function setParticleEffect(kind) {
+  const sel = document.querySelector("#landscapeParticleSelect");
+  const cineSel = document.querySelector("#cineParticleSelect");
+  const valid = PARTICLE_CFG[kind] || kind === "fog";
+  state.particle.kind = valid ? kind : "none";
+  if (sel) sel.value = (kind === "snow" || kind === "rain") ? kind : "none";
+  if (cineSel) cineSel.value = (kind === "fire" || kind === "sparks" || kind === "smoke") ? kind : "none";
+  if (state.particle.kind === "fog") {
+    clearParticles();
+    scene.fog = new THREE.FogExp2(0xafc3d2, 0.02 * state.particle.intensity);
+    return;
+  }
+  scene.fog = null;
+  if (state.particle.kind === "none") {
+    clearParticles();
+    return;
+  }
+  buildParticlePoints();
+}
+
+function buildParticlePoints() {
+  clearParticles();
+  const kind = state.particle.kind;
+  const cfg = PARTICLE_CFG[kind];
+  if (!cfg) return;
+  let ox = 0, oy = 0.5, oz = 0;
+  if (state.selectedIds.length) {
+    const m = findMesh(state.selectedIds[0]);
+    if (m) {
+      const w = m.getWorldPosition(new THREE.Vector3());
+      ox = w.x; oy = w.y + 0.5; oz = w.z;
+    }
+  }
+  const count = cfg.count;
+  const geom = new THREE.BufferGeometry();
+  const pos = new Float32Array(count * 3);
+  thisVelocities = new Float32Array(count * 3);
+  const spans = kind === "fire" || kind === "sparks" || kind === "smoke" ? [1.6, 0.3, 1.6] : cfg.box;
+  for (let i = 0; i < count; i++) {
+    const idx = i * 3;
+    pos[idx] = ox + (Math.random() - 0.5) * spans[0];
+    pos[idx + 1] = oy + Math.random() * spans[1];
+    pos[idx + 2] = oz + (Math.random() - 0.5) * spans[2];
+    thisVelocities[idx] = cfg.vel[0] * state.particle.intensity + (Math.random() - 0.5) * cfg.jitter[0];
+    const vySign = cfg.vel[1] >= 0 ? 1 : -1;
+    thisVelocities[idx + 1] = vySign * state.particle.intensity * Math.abs(cfg.vel[1]) * (0.6 + Math.random() * 0.8);
+    if (cfg.jitter[1]) thisVelocities[idx + 1] += (Math.random() - 0.5) * cfg.jitter[1];
+    thisVelocities[idx + 2] = cfg.vel[2] * state.particle.intensity + (Math.random() - 0.5) * cfg.jitter[2];
+  }
+  geom.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  const mat = new THREE.PointsMaterial({
+    color: cfg.color,
+    size: cfg.size,
+    transparent: true,
+    opacity: cfg.opacity,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+  const points = new THREE.Points(geom, mat);
+  points.userData.particleKind = kind;
+  points.userData.origin = new THREE.Vector3(ox, oy, oz);
+  points.userData.box = cfg.box;
+  scene.add(points);
+  particleSys = points;
+}
+
+function clearParticles() {
+  if (particleSys) {
+    scene.remove(particleSys);
+    particleSys.geometry.dispose();
+    particleSys.material.dispose();
+    particleSys = null;
+  }
+  thisVelocities = null;
+}
+
+function updateParticles(dt) {
+  if (!particleSys) return;
+  const kind = particleSys.userData.particleKind;
+  const pos = particleSys.geometry.attributes.position.array;
+  const count = pos.length / 3;
+  const box = particleSys.userData.box;
+  for (let i = 0; i < count; i++) {
+    const idx = i * 3;
+    pos[idx] += thisVelocities[idx] * dt;
+    pos[idx + 1] += thisVelocities[idx + 1] * dt;
+    pos[idx + 2] += thisVelocities[idx + 2] * dt;
+    if (kind === "snow" && pos[idx + 1] < 0) {
+      pos[idx + 1] = box[1];
+      pos[idx] = (Math.random() - 0.5) * box[0];
+      pos[idx + 2] = (Math.random() - 0.5) * box[2];
+    } else if (kind === "rain" && pos[idx + 1] < 0) {
+      pos[idx + 1] = box[1];
+    } else if ((kind === "fire" || kind === "smoke") && pos[idx + 1] > particleSys.userData.origin.y + 6) {
+      pos[idx] = particleSys.userData.origin.x + (Math.random() - 0.5) * 1.2;
+      pos[idx + 1] = particleSys.userData.origin.y + 0.3 + Math.random() * 0.8;
+      pos[idx + 2] = particleSys.userData.origin.z + (Math.random() - 0.5) * 1.2;
+    } else if (kind === "sparks" && pos[idx + 1] > particleSys.userData.origin.y + 3) {
+      pos[idx] = particleSys.userData.origin.x + (Math.random() - 0.5) * 1.2;
+      pos[idx + 1] = particleSys.userData.origin.y + 0.3;
+      pos[idx + 2] = particleSys.userData.origin.z + (Math.random() - 0.5) * 1.2;
+    }
+  }
+  particleSys.geometry.attributes.position.needsUpdate = true;
+}
+
+function clearFogForProject() {
+  if (scene.fog) scene.fog = null;
 }
 
 function initQuadView() {
@@ -3181,6 +3405,44 @@ function bindUI() {
   document.querySelector("#buildFromPlanBtn").addEventListener("click", buildFromPlan);
   document.querySelector("#clearPlanBtn").addEventListener("click", clearPlan);
   document.querySelector("#focusBtn").addEventListener("click", focusCamera);
+  document.querySelector("#camModeBtn")?.addEventListener("click", () => setCamMode(state.render.camMode === "ortho" ? "persp" : "ortho"));
+  document.querySelector("#renderLightBtn")?.addEventListener("click", toggleRenderLightPanel);
+  document.querySelector("#camModeSelect")?.addEventListener("change", (e) => setCamMode(e.target.value));
+  const bindRenderInput = (id, key, parse = parseFloat) => {
+    const el = document.querySelector(id);
+    if (!el) return;
+    el.addEventListener("input", () => {
+      const v = parse(el.value);
+      if (id === "#sunShadows") { state.render.sunShadows = el.checked; syncLightsFromState(); return; }
+      if (id === "#spotOn") { state.render.spotOn = el.checked; syncLightsFromState(); return; }
+      if (id === "#spotX") { state.render.spotPos.x = v; syncLightsFromState(); return; }
+      if (id === "#spotY") { state.render.spotPos.y = v; syncLightsFromState(); return; }
+      if (id === "#spotZ") { state.render.spotPos.z = v; syncLightsFromState(); return; }
+      state.render[key] = v;
+      syncLightsFromState();
+    });
+  };
+  bindRenderInput("#sunAzimuth", "sunAzimuth");
+  bindRenderInput("#sunElevation", "sunElevation");
+  bindRenderInput("#sunIntensity", "sunIntensity");
+  bindRenderInput("#hemiIntensity", "hemiIntensity");
+  bindRenderInput("#spotIntensity", "spotIntensity");
+  bindRenderInput("#sunShadows", "sunShadows");
+  bindRenderInput("#spotOn", "spotOn");
+  bindRenderInput("#spotX", "spotX");
+  bindRenderInput("#spotY", "spotY");
+  bindRenderInput("#spotZ", "spotZ");
+  const bindParticleSelect = (id) => {
+    const el = document.querySelector(id);
+    if (!el) return;
+    el.addEventListener("change", (e) => setParticleEffect(e.target.value));
+  };
+  bindParticleSelect("#landscapeParticleSelect");
+  bindParticleSelect("#cineParticleSelect");
+  document.querySelector("#landscapeParticleIntensity")?.addEventListener("input", (e) => {
+    state.particle.intensity = parseFloat(e.target.value) || 1;
+    if (state.particle.kind === "fog" && scene.fog) scene.fog.density = 0.02 * state.particle.intensity;
+  });
   document.querySelectorAll("[data-pipeline]").forEach((item) => {
     item.addEventListener("click", () => {
       const step = item.dataset.pipeline;
@@ -3501,6 +3763,11 @@ const primary = primaryId();
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       event.preventDefault();
       deleteSelected();
+    } else if (event.code === "KeyO" && !event.ctrlKey && !event.metaKey) {
+      const tag = event.target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      event.preventDefault();
+      setCamMode(state.render.camMode === "ortho" ? "persp" : "ortho");
     }
   });
   window.addEventListener("resize", resize);
@@ -5310,6 +5577,13 @@ function newProject() {
   state.assets = {};
   state.materials = [];
   state.collection = [];
+  setParticleEffect("none");
+  clearFogForProject();
+  state.particle.intensity = 1;
+  const lpSel = document.querySelector("#landscapeParticleSelect");
+  const cpSel = document.querySelector("#cineParticleSelect");
+  if (lpSel) lpSel.value = "none";
+  if (cpSel) cpSel.value = "none";
   refreshObjectMaterialOptions();
   renderCustomMaterials();
   renderCollection();
@@ -7823,6 +8097,10 @@ function resize() {
     camera.aspect = rect.width / rect.height;
     camera.updateProjectionMatrix();
     renderer.setSize(Math.round(rect.width), Math.round(rect.height), true);
+    if (orthoCam) {
+      orthoCam.aspect = rect.width / rect.height;
+      orthoCam.updateProjectionMatrix();
+    }
     if (vpFrontCam) {
       const s = Math.max(rect.width, rect.height) / 40;
       vpFrontCam.left = -s; vpFrontCam.right = s;
@@ -7858,6 +8136,7 @@ function animate() {
   }
   if (state.cine.playing) cineTick(dt);
   if (__engine) __engine.update(dt, state.anim.t);
+  updateParticles(dt);
   controls.update();
   panoControls.update();
   if (quadViewActive && vpFrontCam && vpTopCam && vpLeftCam) {
@@ -7887,7 +8166,7 @@ function animate() {
     renderer.render(scene, camera);
     renderer.setScissorTest(false);
   } else {
-    renderer.render(scene, camera);
+    renderer.render(scene, getActiveCamera());
   }
   panoRenderer.render(panoScene, panoCamera);
 }
@@ -7917,5 +8196,5 @@ function escapeHTML(value) {
 }
 
 if (new URLSearchParams(location.search).get("debug") === "1") {
-  window.__iner = { state, toProjectJSON, loadProject, createMesh, registerImported, renderCustomLibrary, addCustomInstance, engine: __engine, sceneManager: __sceneManager, meshEditMode: meshEditObj, sculptMode: sculptModeObj, setMode };
+  window.__iner = { state, toProjectJSON, loadProject, createMesh, registerImported, renderCustomLibrary, addCustomInstance, engine: __engine, sceneManager: __sceneManager, meshEditMode: meshEditObj, sculptMode: sculptModeObj, setMode, setParticleEffect, setCamMode, toggleRenderLightPanel, syncLightsFromState, sun: lights.sun };
 }
