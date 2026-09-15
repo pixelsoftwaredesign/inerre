@@ -1227,19 +1227,29 @@ let __sceneManager = null;
 let meshEditObj = null;
 let sculptModeObj = null;
 
-initLighting();
-initQuadView();
-buildRoom();
-bindUI();
-setupModes();
-setTransformMode("translate");
-setSelectionMode("point");
-pushUndo();
-resize();
-animate();
-addDefaultFurniture();
-updatePipeline();
-window.__INERRE_BOOTED = true;
+/**
+ * Point d'entrée global d'InerStudio.
+ * Monte dans l'ordre : moteur de rendu/caméras/lumières/grille, vues quad,
+ * pièce par défaut, UI+modes (Engine), transformation & sélection, puis lance
+ * la boucle d'animation et le mobilier de départ.
+ */
+function initStudio() {
+  initLighting();
+  initQuadView();
+  buildRoom();
+  bindUI();
+  setupModes();
+  setTransformMode("translate");
+  setSelectionMode("point");
+  pushUndo();
+  resize();
+  animate();
+  addDefaultFurniture();
+  updatePipeline();
+  window.__INERRE_BOOTED = true;
+}
+
+initStudio();
 
 function addDefaultFurniture() {
   addObject("sofa");
