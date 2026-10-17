@@ -1133,8 +1133,31 @@ function showBootError(message) {
   msg.textContent = message || "";
   el.classList.add("show");
 }
+// Vérifie explicitement la disponibilité de WebGL AVANT de laisser Three.js
+// accéder à un contexte nul (sinon : "gl.getShaderPrecisionFormat is null").
+function assertWebGL() {
+  try {
+    const probe = document.createElement("canvas");
+    const gl =
+      probe.getContext("webgl2") ||
+      probe.getContext("webgl") ||
+      probe.getContext("experimental-webgl");
+    if (gl) {
+      const lose = gl.getExtension("WEBGL_lose_context");
+      if (lose) lose.loseContext();
+      return;
+    }
+  } catch (err) {
+    // ignore : on renvoie l'erreur explicite ci-dessous
+  }
+  throw new Error(
+    "WebGL n'est pas disponible sur ce navigateur/appareil. " +
+      "Activez l'accélération matérielle puis rechargez."
+  );
+}
 let renderer;
 try {
+  assertWebGL();
   renderer = new THREE.WebGLRenderer({ antialias: true });
 } catch (e) {
   showBootError("WebGL indisponible sur votre navigateur ou appareil.\n\n" + (e && e.message ? e.message : String(e)) + "\n\nAstuce : activez l'accélération matérielle (paramètres Chrome/Safari) et rechargez. N'hésitez pas à copier ce texte pour le support.");
@@ -1198,7 +1221,14 @@ scene.add(transformControls);
 
 const panoCamera = new THREE.PerspectiveCamera(75, 1, 0.1, 1100);
 panoCamera.position.set(0, 0, 0.1);
-const panoRenderer = new THREE.WebGLRenderer({ antialias: true });
+const panoRenderer = (() => {
+  try {
+    return new THREE.WebGLRenderer({ antialias: true });
+  } catch (e) {
+    showBootError("WebGL indisponible sur votre navigateur ou appareil.\n\n" + (e && e.message ? e.message : String(e)) + "\n\nAstuce : activez l'accélération matérielle (paramètres Chrome/Safari) et rechargez.");
+    throw e;
+  }
+})();
 panoRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 dom.panoramaViewport.appendChild(panoRenderer.domElement);
 const panoControls = new OrbitControls(panoCamera, panoRenderer.domElement);
