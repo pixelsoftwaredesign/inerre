@@ -1056,6 +1056,41 @@
         });
       })();
     </script>
-    <script type="module" src="./app.js"></script>
+    <script type="module">
+      // Détection WebGL AVANT de charger l'application : si WebGL est absent,
+      // on affiche un message clair au lieu de laisser une erreur JS non gérée.
+      function webglAvailable() {
+        try {
+          var c = document.createElement("canvas");
+          return !!(c.getContext("webgl2") || c.getContext("webgl") || c.getContext("experimental-webgl"));
+        } catch (e) {
+          return false;
+        }
+      }
+      if (webglAvailable()) {
+        // Import dynamique : une erreur d'initialisation (ex. WebGL perdu) est
+        // capturée ici, sans « Uncaught Error » dans la console.
+        import("./app.js").catch(function (err) {
+          var el = document.getElementById("inerreDump");
+          var msg = document.getElementById("inerreDumpMsg");
+          if (el && msg && !el.classList.contains("show")) {
+            msg.textContent = "L'application n'a pas pu démarrer.\n" + ((err && err.message) || err);
+            el.classList.add("show");
+          }
+        });
+      } else {
+        var el = document.getElementById("inerreDump");
+        var msg = document.getElementById("inerreDumpMsg");
+        if (el && msg) {
+          msg.textContent =
+            "WebGL est nécessaire à Iner Studio mais n'est pas disponible sur ce navigateur/appareil.\n\n" +
+            "• Activez l'accélération matérielle (Chrome/Edge : Paramètres → Système → « Utiliser l'accélération graphique » ; Safari : Réglages → Avancé).\n" +
+            "• Essayez un navigateur récent (Chrome, Edge, Firefox) ou un autre appareil.\n" +
+            "• Mettez à jour vos pilotes graphiques.\n\n" +
+            "Rechargez ensuite la page.";
+          el.classList.add("show");
+        }
+      }
+    </script>
   </body>
 </html>
